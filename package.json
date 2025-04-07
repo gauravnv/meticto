@@ -1,0 +1,23 @@
+{
+  "name": "meticto",
+  "version": "1.0.0",
+  "description": "A tic tac toe game with a twist. Play tic tac toe on a 3x3 grid of tic tac toe boards.",
+  "main": "index.js",
+  "scripts": {
+    "dev:client": "npm run dev --prefix client",
+    "dev:server": "npm run dev --prefix server",
+    "dev": "concurrently \"npm:dev:client\" \"npm:dev:server\"",
+    "install:client": "npm install --prefix client",
+    "install:server": "npm install --prefix server",
+    "install:all": "npm install && npm run install:client && npm run install:server",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "Gaurav Vasudev",
+  "license": "ISC",
+  "type": "commonjs",
+  "private": true,
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

@@ -1,0 +1,15 @@
+@import "tailwindcss";
+
+@layer utilities {
+    @keyframes turn-change-pulse {
+      0%, 100% {
+        --tw-gradient-via: theme('colors.indigo.800');
+      }
+      50% {
+         --tw-gradient-via: theme('colors.indigo.950');
+      }
+    }
+    .animate-turn-pulse {
+        animation: turn-change-pulse 0.6s ease-in-out 1;
+    }
+  }
