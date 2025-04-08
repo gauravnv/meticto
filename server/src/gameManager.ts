@@ -50,6 +50,19 @@ export class GameManager {
     private gameRooms = new Map<string, GameRoom>();
     private socketIdToRoomId = new Map<string, string>();
 
+    private getSocketIdFromRoomId(roomId: string): string | null {
+        for (const [socketId, id] of this.socketIdToRoomId.entries()) {
+            if (id === roomId) {
+                return socketId;
+            }
+        }
+        return null;
+    }
+
+    private getRoomIdFromSocketId(socketId: string): string | null {
+        return this.socketIdToRoomId.get(socketId) || null;
+    }
+
     constructor(io: SocketIOServer) {
         this.io = io;
     }
@@ -426,7 +439,7 @@ export class GameManager {
 
         // --- Broadcast the NEWLY ASSIGNED state ---
         console.log(`[${roomId}] Broadcasting updated game state.`);
-        this.io.to(roomId).emit("GAME_STATE_UPDATE", room.gameState); // Broadcast the state FROM the room
+        this.io.to(roomId!).emit("GAME_STATE_UPDATE", room.gameState); // Broadcast the state FROM the room
     } 
 
     handleResetGameRequest(socketId: string) {
@@ -467,7 +480,7 @@ export class GameManager {
         console.log(`[${roomId}] Broadcasting GAME_START after reset.`);
         // Emit GAME_START to both players with the fresh initial state
         // This clearly signals the game view should reset and become active
-        this.io.to(roomId).emit("GAME_START", {
+        this.io.to(roomId!).emit("GAME_START", {
             roomId,
             initialState: room.gameState,
             // Optionally send updated roles if they were swapped

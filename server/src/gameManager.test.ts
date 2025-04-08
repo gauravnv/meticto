@@ -63,8 +63,7 @@ describe('GameManager', () => {
          // @ts-ignore
         const roomId = gameManager.socketIdToRoomId.get('socket-1');
         expect(roomId).toBeDefined();
-        // ts-ignore
-        expect(gameManager.socketIdToRoomId.get('socket-2')).toBe(roomId);
+        expect((gameManager as any).getRoomIdFromSocketId('socket-2')).toBe(roomId);
     });
 
     it('should allow valid first move by Player X', () => {
