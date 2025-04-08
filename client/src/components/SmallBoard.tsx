@@ -1,6 +1,6 @@
 import React from 'react';
 import Cell from './Cell';
-import { LargeBoardCellState, GameStatus, isSmallBoardFinished } from '../types';
+import { LargeBoardCellState, GameStatus, isSmallBoardFinished } from '../../../server/src/types';
 
 interface SmallBoardProps {
   boardIndex: number;

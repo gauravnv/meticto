@@ -1,168 +1,178 @@
 import React, { useState, useEffect } from 'react';
 import LargeBoard from './LargeBoard';
-import {
-  GameState,
-  LargeBoardCellState,
-  SmallBoardState,
-  isSmallBoardFinished
-} from '../types';
-import { checkWinner } from '../utils/gameLogic';
-
-const createEmptySmallBoard = (): SmallBoardState => Array(9).fill(null);
-
-const createInitialLargeBoardCell = (): LargeBoardCellState => ({
-  status: 'InProgress',
-  cells: createEmptySmallBoard(),
-  winningLine: null,
-});
-
-const initialGameState: GameState = {
-  largeBoard: Array(9).fill(null).map(createInitialLargeBoardCell),
-  currentPlayer: 'X', // X always starts
-  activeBoardIndex: null, // First move can be anywhere
-  gameStatus: 'InProgress',
-  largeWinningLine: null,
-};
-
+import { useSocketContext } from '../context/SocketContext'; // Import context hook
 
 const Game: React.FC = () => {
-  const [gameState, setGameState] = useState<GameState>(initialGameState);
-  const [isAnimatingTurn, setIsAnimatingTurn] = useState(false);
+    // Consume context hook
+    const {
+        isConnected,
+        gameState,
+        playerRole,
+        opponentJoined, // Get flag from context state
+        opponentDisconnected,
+        roomId,
+        roomName,
+        spectatorCount,
+        serverError,
+        leaveRoom, // Get action from context
+        attemptMove, // Get action from context
+        requestResetGame, // Get action from context
+    } = useSocketContext();
 
-  useEffect(() => {
-    // Don't animate on initial load or if game is over
-    if (gameState.gameStatus !== 'InProgress') {
-        setIsAnimatingTurn(false);
-        return;
+    // Local UI State remains
+    const [isAnimatingTurn, setIsAnimatingTurn] = useState(false);
+
+    // Animation Effect remains (depends on gameState from context)
+    useEffect(() => {
+        if (!gameState || gameState.gameStatus !== 'InProgress') { setIsAnimatingTurn(false); return; }
+        setIsAnimatingTurn(true);
+        const timer = setTimeout(() => setIsAnimatingTurn(false), 600);
+        return () => clearTimeout(timer);
+    }, [gameState?.currentPlayer, gameState?.gameStatus]);
+
+    // --- Click Handlers (Call context actions) ---
+    const handleCellClick = (largeBoardIdx: number, smallBoardIdx: number) => {
+        if (!gameState || gameState.gameStatus !== 'InProgress' || playerRole !== gameState.currentPlayer || !opponentJoined) {
+             console.log("Game.tsx: Click ignored - Conditions not met (game state, turn, opponent joined).");
+             return;
+        }
+        attemptMove(largeBoardIdx, smallBoardIdx);
+    };
+    const handleResetClick = () => { requestResetGame(); };
+    const handleLeaveClick = () => { leaveRoom(); };
+
+    // --- Conditional Rendering Logic ---
+
+    // 1. Opponent Disconnected State (Show this screen preferentially)
+    if (opponentDisconnected) {
+       return (
+         <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-gray-900 via-indigo-950 to-gray-900 text-white p-4">
+           <h1 className="text-4xl font-bold mb-4">Meta Tic-Tac-Toe</h1>
+           <div className="text-2xl text-red-500 mb-4">Opponent Disconnected</div>
+           <div className="text-xl mb-6">Game ended.</div>
+           {/* Provide button to go back to lobby explicitly */}
+           <button onClick={handleLeaveClick} className="mt-4 px-4 py-2 bg-gray-600 rounded hover:bg-gray-700">Back to Lobby</button>
+         </div>
+       );
     }
 
-    // Trigger animation (skip initial render where player might be default 'X')
-    setIsAnimatingTurn(true);
-    const timer = setTimeout(() => {
-      setIsAnimatingTurn(false);
-    }, 600);
+    // 2. Connection/Server Error State (If disconnected or error received while in game)
+    // Check !isConnected OR serverError. Added check for roomId to ensure we were meant to be in a game.
+    if ((!isConnected || serverError) && roomId && !opponentDisconnected) {
+         return (
+            <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-gray-900 via-indigo-950 to-gray-900 text-white p-4">
+                <h1 className="text-4xl font-bold mb-4">Meta Tic-Tac-Toe</h1>
+                <div className="text-2xl text-red-500 mb-4">Error</div>
+                <div className="text-xl mb-6">{serverError || "Connection lost."}</div>
+                {/* Button to leave room state and return to lobby */}
+                <button onClick={handleLeaveClick} className="mt-4 px-4 py-2 bg-gray-600 rounded hover:bg-gray-700">Back to Lobby</button>
+            </div>
+         );
+    }
 
-    // Cleanup timeout if component unmounts or player changes again quickly
-    return () => clearTimeout(timer);
+    // 3. Loading State: If App.tsx rendered us (so roomId exists), but gameState isn't loaded yet
+    if (!gameState) {
+        // This screen should only show briefly after joining/creating or on reconnect
+        return (
+           <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-gray-900 via-indigo-950 to-gray-900 text-white p-4">
+               <h1 className="text-4xl font-bold mb-4">Meta Tic-Tac-Toe</h1>
+               <div className="text-2xl text-yellow-400 animate-pulse">Loading game state... {roomName && `(Room: "${roomName}")`}</div>
+               {/* Leave button is useful even if stuck loading */}
+               <button onClick={handleLeaveClick} className="mt-6 px-4 py-2 bg-gray-600 rounded hover:bg-gray-700">Back to Lobby</button>
+           </div>
+         );
+    }
 
-  }, [gameState.currentPlayer, gameState.gameStatus]); // Run when player or game status changes
 
-  const handleCellClick = (largeBoardIdx: number, smallBoardIdx: number) => {
-    // --- Step 1: Get Current State & Basic Validation ---
-    const currentLargeBoardCell = gameState.largeBoard[largeBoardIdx];
-    const currentSmallBoardCells = currentLargeBoardCell.cells;
+    // --- If gameState IS available, Determine Status Texts ---
+    // Player Role Info
+    let playerInfoText = playerRole ? `You are Player ${playerRole}` : "Spectating";
+    let roomInfoText = roomName ? ` in room "${roomName}"` : "";
+    let spectatorInfo = spectatorCount > 0 ? ` (${spectatorCount} watching)` : "";
 
-    // Ignore clicks if:
-    if (gameState.gameStatus !== 'InProgress') return; // 1. Game is already won/drawn
-    if (gameState.activeBoardIndex !== null && gameState.activeBoardIndex !== largeBoardIdx) return; // 2. Not the required board
-    if (isSmallBoardFinished(currentLargeBoardCell.status)) return; // 3. Small board already won/drawn
-    if (currentSmallBoardCells[smallBoardIdx] !== null) return; // 4. Cell already filled
+    // Main Status/Turn Text
+    let statusText: string;
+    // Check if waiting for opponent AFTER joining the room
+    const isGameReadyToPlay = opponentJoined || playerRole === null; // Ready if opponent joined or spectating
 
-    // --- Step 2: Create Next State (Deep Copy) ---
-    const nextState: GameState = structuredClone(gameState);
-    const nextLargeBoardCell = nextState.largeBoard[largeBoardIdx];
-
-    // --- Step 3: Update Clicked Cell ---
-    nextLargeBoardCell.cells[smallBoardIdx] = gameState.currentPlayer;
-
-    // --- Step 4: Check Small Board Win/Draw ---
-    // Call the imported checkWinner function
-    const smallBoardResult = checkWinner(nextLargeBoardCell.cells);
-    let smallBoardFinished = false;
-    if (smallBoardResult.winner) {
-      nextLargeBoardCell.status = smallBoardResult.winner;
-      nextLargeBoardCell.winningLine = smallBoardResult.winningLine;
-      smallBoardFinished = true;
-    } else if (smallBoardResult.isDraw) {
-      nextLargeBoardCell.status = 'Draw';
-      nextLargeBoardCell.winningLine = null;
-      smallBoardFinished = true;
+    if (gameState.gameStatus === 'X' || gameState.gameStatus === 'O') { statusText = `Player ${gameState.gameStatus} Wins! ${gameState.gameStatus === playerRole ? '🎉 You won!' : (playerRole ? 'You lost.' : '')}`; }
+    else if (gameState.gameStatus === 'Draw') { statusText = 'Game is a Draw!'; }
+    // --- Check if ready to play before showing turn info ---
+    else if (!isGameReadyToPlay && playerRole) {
+         statusText = "Waiting for opponent to join...";
     } else {
-       nextLargeBoardCell.winningLine = null; // Ensure line is clear if board becomes in progress again
-    }
-
-    // --- Step 5: Check Large Board Win/Draw (if small board just finished) ---
-    if (smallBoardFinished) {
-      const largeBoardStatuses = nextState.largeBoard.map(cell => cell.status);
-       // Call the imported checkWinner function again
-      const largeBoardResult = checkWinner(largeBoardStatuses);
-
-      if (largeBoardResult.winner) {
-        nextState.gameStatus = largeBoardResult.winner;
-        nextState.largeWinningLine = largeBoardResult.winningLine; // Store the large winning line
-        nextState.activeBoardIndex = null; // Game over
-      } else if (largeBoardResult.isDraw) {
-        nextState.gameStatus = 'Draw';
-        nextState.largeWinningLine = null; // Ensure no winning line on draw
-        nextState.activeBoardIndex = null; // Game over
-      } else {
-        nextState.largeWinningLine = null; // Clear if game continues
-      }
-    }
-    // Ensure largeWinningLine is null if game is still in progress after checking
-    if (nextState.gameStatus === 'InProgress') {
-        nextState.largeWinningLine = null;
+       // Game In Progress - Determine turn text based on player role
+       if (!playerRole) { // Spectator view
+           statusText = `Player ${gameState.currentPlayer}'s Turn`;
+       } else if (playerRole === gameState.currentPlayer) { // Your turn
+            statusText = "Your Turn";
+       } else { // Opponent's turn
+           statusText = `Player ${gameState.currentPlayer}'s Turn`;
+       }
+       // Add board target information
+       if (gameState.activeBoardIndex !== null) {
+           statusText += ` - Play in Board ${gameState.activeBoardIndex + 1}`;
+       } else {
+           statusText += ` - Play anywhere`;
+       }
     }
 
 
-    // --- Step 6: Determine Next Active Board & Switch Player (if game still in progress) ---
-    if (nextState.gameStatus === 'InProgress') {
-      const nextActiveBoardIdx = smallBoardIdx;
-      const nextSmallBoardStatus = nextState.largeBoard[nextActiveBoardIdx].status;
+    // --- Render the Main Game UI ---
+    return (
+      // Apply background gradient and conditional turn animation class
+      // Added relative positioning for absolute elements inside
+      <div className={`relative flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-gray-900 via-indigo-950 to-gray-900 text-white p-4 pt-16 sm:pt-4 ${isAnimatingTurn ? 'animate-turn-pulse' : ''}`}>
 
-      if (isSmallBoardFinished(nextSmallBoardStatus)) {
-        nextState.activeBoardIndex = null; // Play anywhere
-      } else {
-        nextState.activeBoardIndex = nextActiveBoardIdx;
-      }
+        {/* Leave Room Button (Positioned Top Left) */}
+        <div className="absolute top-3 left-3 sm:top-4 sm:left-4 z-20">
+             <button
+                onClick={handleLeaveClick}
+                className="px-3 py-1 bg-red-700 hover:bg-red-800 text-white text-xs sm:text-sm font-semibold rounded shadow-md transition duration-150 ease-in-out"
+                title="Leave Game Room"
+             >
+                 Leave
+             </button>
+        </div>
 
-      nextState.currentPlayer = gameState.currentPlayer === 'X' ? 'O' : 'X';
-    }
+        {/* Game Title */}
+        <h1 className="text-3xl sm:text-4xl font-bold mb-2 sm:mb-4 mt-8 sm:mt-0">Meta Tic-Tac-Toe</h1>
 
-    // --- Step 7: Update State ---
-    setGameState(nextState);
-  };
+        {/* Player/Room/Spectator Info Area */}
+        <div className="text-base sm:text-xl mb-1 h-6 font-semibold text-center text-gray-300">{playerInfoText}{roomInfoText}{spectatorInfo}</div>
 
-  // Determine the status text to display
-  let statusText: string;
-  if (gameState.gameStatus === 'X' || gameState.gameStatus === 'O') {
-    statusText = `Player ${gameState.gameStatus} Wins!`;
-  } else if (gameState.gameStatus === 'Draw') {
-    statusText = 'Game is a Draw!';
-  } else {
-    statusText = `Player ${gameState.currentPlayer}'s Turn`;
-    if (gameState.activeBoardIndex !== null) {
-      statusText += ` - Play in Board ${gameState.activeBoardIndex + 1}`; // Commit heresy to please the normies
-    } else {
-        statusText += ` - Play anywhere`;
-    }
-  }
+        {/* Game Status / Turn Indicator */}
+        <div className="text-xl sm:text-2xl mb-4 h-8 text-center">{statusText}</div>
 
-  return (
-    <div className={`flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-gray-900 via-indigo-950 to-gray-900 text-white p-4 ${isAnimatingTurn ? 'animate-turn-pulse' : ''}`}>
-      <h1 className="text-4xl font-bold mb-4">Meta Tic-Tac-Toe</h1>
-      <div className="text-2xl mb-4 h-8">{statusText}</div>
-      <div className="mt-4 w-full max-w-lg">
-        <LargeBoard
-          largeBoardState={gameState.largeBoard}
-          activeBoardIndex={gameState.activeBoardIndex}
-          gameStatus={gameState.gameStatus}
-          largeWinningLine={gameState.largeWinningLine}
-          onCellClick={handleCellClick}
-        />
+        {/* Display Mid-Game Server Errors */}
+        {serverError && !opponentDisconnected && <p className="absolute top-14 sm:top-auto sm:relative text-red-500 text-xs sm:text-sm mb-2 px-2 text-center">Error: {serverError}</p>}
+
+        {/* Game Board Area */}
+        <div className="mt-4 w-full max-w-lg">
+          <LargeBoard
+            // Pass all necessary props derived from gameState and playerRole
+            largeBoardState={gameState.largeBoard}
+            activeBoardIndex={gameState.activeBoardIndex}
+            currentPlayer={gameState.currentPlayer}
+            myRole={playerRole}
+            gameStatus={gameState.gameStatus}
+            largeWinningLine={gameState.largeWinningLine}
+            onCellClick={handleCellClick}
+          />
+        </div>
+
+        {/* Rematch Button: Show only if game is finished AND user was a player */}
+        {(gameState.gameStatus !== 'InProgress' && playerRole) && (
+            <button
+                onClick={handleResetClick} // Emits 'REQUEST_RESET_GAME'
+                className="mt-6 px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg shadow-md transition duration-150 ease-in-out"
+                aria-label="Request Rematch"
+            >
+                Request Rematch? {/* Label clearly indicates user action */}
+            </button>
+        )}
       </div>
-
-      {/* Reset button */}
-      <button
-        onClick={() => setGameState(initialGameState)}
-        className="mt-6 px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg shadow-md transition duration-150 ease-in-out"
-        aria-label="Reset Game"
-      >
-          Reset Game
-      </button>
-
-    </div>
-  );
+    );
 };
 
 export default Game;

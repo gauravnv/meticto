@@ -1,5 +1,5 @@
 import React from 'react';
-import { CellValue } from '../types';
+import { CellValue } from '../../../server/src/types';
 
 interface CellProps {
   value: CellValue;

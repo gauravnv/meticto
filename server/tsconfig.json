@@ -1,0 +1,38 @@
+// meticto/server/tsconfig.json
+{
+  "compilerOptions": {
+    /* Base Options: */
+    "esModuleInterop": true, // Keep true for easier default imports
+    "skipLibCheck": true,    // Optional: Speeds up compilation
+    "target": "es2020",       // Set target JS version (adjust if needed)
+    "allowJs": true,         // Optional: Allow importing .js files
+    "resolveJsonModule": true,// Keep true
+    "moduleDetection": "force",// Recommended for TS 5+
+
+    /* Strictness */
+    "strict": true,          // Recommended for new projects
+    "noImplicitAny": true,   // Part of strict
+    "strictNullChecks": true,// Part of strict
+
+    /* Module Specifiers */
+    "module": "commonjs",      // <--- CHANGE to commonjs
+    "moduleResolution": "node",// <--- CHANGE to node (or node10)
+
+    /* Emit */
+    "outDir": "./dist",        // Output directory for compiled JS
+    "sourceMap": true,         // Generate source maps for debugging
+
+    /* Language and Environment */
+    "lib": ["esnext"],         // Include modern ES features + DOM libs if needed by dependencies
+
+    /* Paths */
+     // "baseUrl": "./",        // Optional: Set base directory for path mapping
+     // "paths": {},           // Optional: Configure custom path aliases
+
+    /* Other */
+     "rootDir": "./src",       // Specify root directory of source files
+
+  },
+  "include": ["src/**/*"],     // Which files to include
+  "exclude": ["node_modules", "dist"] // Which files/folders to exclude
+}

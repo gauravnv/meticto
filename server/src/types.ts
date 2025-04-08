@@ -1,7 +1,9 @@
 export type Player = 'X' | 'O';
 export type CellValue = Player | null;
 export type SmallBoardState = CellValue[];
+
 export type SmallBoardStatus = 'InProgress' | Player | 'Draw';
+
 export type GameStatus = 'InProgress' | Player | 'Draw';
 
 export interface LargeBoardCellState {
@@ -16,14 +18,6 @@ export interface GameState {
     activeBoardIndex: number | null;
     gameStatus: GameStatus;
     largeWinningLine: number[] | null;
-}
-
-// Type for room info received from server
-export interface RoomInfo {
-    roomId: string;
-    roomName: string;
-    playerCount: number;
-    status: 'Waiting' | 'Playing' | 'Finished'; // Match server RoomStatus
 }
 
 export function isSmallBoardFinished(status: SmallBoardStatus): boolean {
