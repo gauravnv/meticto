@@ -19,8 +19,6 @@ interface LargeBoardProps {
 const LargeBoard: React.FC<LargeBoardProps> = ({
     largeBoardState,
     activeBoardIndex,
-    currentPlayer, // Received prop
-    myRole,        // Received prop
     gameStatus,
     largeWinningLine,
     onCellClick,

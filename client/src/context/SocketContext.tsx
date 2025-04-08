@@ -45,7 +45,7 @@ type SocketAction =
 
 // --- Reducer ---
 const socketReducer = (state: SocketState, action: SocketAction): SocketState => {
-    console.log("Reducer Action:", action.type, "Payload:", (action as any).payload); // Log actions
+    console.log("Reducer Action:", action.type, "Payload:", 'payload' in action ? action.payload : undefined); // Log actions
     switch (action.type) {
         case 'SET_CONNECTION_STATUS':
             // If disconnecting, reset everything except maybe error
@@ -126,8 +126,8 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
 
         // Define handlers that dispatch actions
         const handleConnect = () => dispatch({ type: 'SET_CONNECTION_STATUS', payload: true });
-        const handleDisconnect = (reason: string) => dispatch({ type: 'SET_CONNECTION_STATUS', payload: false }); // Reducer handles reset
-        const handleConnectError = (err: Error) => dispatch({ type: 'SET_ERROR', payload: 'Connection failed.' });
+        const handleDisconnect = () => dispatch({ type: 'SET_CONNECTION_STATUS', payload: false }); // Reducer handles reset
+        const handleConnectError = () => dispatch({ type: 'SET_ERROR', payload: 'Connection failed.' });
         const handleGameStateUpdate = (gs: GameState) => dispatch({ type: 'SET_GAME_STATE', payload: gs });
         const handleYourRole = (role: Player | null) => dispatch({ type: 'SET_PLAYER_ROLE', payload: role });
         const handleRoomListUpdate = (list: RoomInfo[]) => dispatch({ type: 'SET_ROOM_LIST', payload: list });
