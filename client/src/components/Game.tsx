@@ -47,7 +47,7 @@ const Game: React.FC = () => {
     if (opponentDisconnected) {
        return (
          <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-gray-900 via-indigo-950 to-gray-900 text-white p-4">
-           <h1 className="text-4xl font-bold mb-4">Meta Tic-Tac-Toe</h1>
+           <h1 className="text-4xl font-bold mb-4">Meticto</h1>
            <div className="text-2xl text-red-500 mb-4">Opponent Disconnected</div>
            <div className="text-xl mb-6">Game ended.</div>
            {/* Provide button to go back to lobby explicitly */}
@@ -61,7 +61,7 @@ const Game: React.FC = () => {
     if ((!isConnected || serverError) && roomId && !opponentDisconnected) {
          return (
             <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-gray-900 via-indigo-950 to-gray-900 text-white p-4">
-                <h1 className="text-4xl font-bold mb-4">Meta Tic-Tac-Toe</h1>
+                <h1 className="text-4xl font-bold mb-4">Meticto</h1>
                 <div className="text-2xl text-red-500 mb-4">Error</div>
                 <div className="text-xl mb-6">{serverError || "Connection lost."}</div>
                 {/* Button to leave room state and return to lobby */}
@@ -75,7 +75,7 @@ const Game: React.FC = () => {
         // This screen should only show briefly after joining/creating or on reconnect
         return (
            <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-gray-900 via-indigo-950 to-gray-900 text-white p-4">
-               <h1 className="text-4xl font-bold mb-4">Meta Tic-Tac-Toe</h1>
+               <h1 className="text-4xl font-bold mb-4">Meticto</h1>
                <div className="text-2xl text-yellow-400 animate-pulse">Loading game state... {roomName && `(Room: "${roomName}")`}</div>
                {/* Leave button is useful even if stuck loading */}
                <button onClick={handleLeaveClick} className="mt-6 px-4 py-2 bg-gray-600 rounded hover:bg-gray-700">Back to Lobby</button>
@@ -136,7 +136,7 @@ const Game: React.FC = () => {
         </div>
 
         {/* Game Title */}
-        <h1 className="text-3xl sm:text-4xl font-bold mb-2 sm:mb-4 mt-8 sm:mt-0">Meta Tic-Tac-Toe</h1>
+        <h1 className="text-3xl sm:text-4xl font-bold mb-2 sm:mb-4 mt-8 sm:mt-0">Meticto</h1>
 
         {/* Player/Room/Spectator Info Area */}
         <div className="text-base sm:text-xl mb-1 h-6 font-semibold text-center text-gray-300">{playerInfoText}{roomInfoText}{spectatorInfo}</div>

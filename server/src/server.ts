@@ -7,23 +7,44 @@ import { GameManager } from './gameManager';
 // --- Server Setup ---
 const app = express();
 const server = http.createServer(app);
-const allowedOrigins = [ process.env.CLIENT_URL || 'http://localhost:5173',];
+const clientUrlFromEnv = process.env.CLIENT_URL || 'http://localhost:5173';
+const renderClientUrlFromEnv = process.env.RENDER_CLIENT_URL;
 
-if (process.env.RENDER_CLIENT_URL) {
-    allowedOrigins.push(process.env.RENDER_CLIENT_URL);
+let dynamicAllowedOrigins = [clientUrlFromEnv];
+if (renderClientUrlFromEnv) {
+    console.log(`RENDER_CLIENT_URL found: ${renderClientUrlFromEnv}`);
+    // Ensure no duplicates if CLIENT_URL was also set to the render URL
+    if (!dynamicAllowedOrigins.includes(renderClientUrlFromEnv)) {
+         dynamicAllowedOrigins.push(renderClientUrlFromEnv);
+    }
+} else {
+     console.log("RENDER_CLIENT_URL not found in environment.");
 }
+console.log("Final allowed CORS origins:", dynamicAllowedOrigins);
+
 
 const corsOptions: cors.CorsOptions = {
     origin: (origin, callback) => {
-        if (!origin || allowedOrigins.indexOf(origin) !== -1) { callback(null, true); }
-        else { callback(new Error('Not allowed by CORS')); }
+        // Use the dynamically built list
+        if (!origin || dynamicAllowedOrigins.includes(origin)) {
+            callback(null, true);
+        } else {
+            console.warn(`CORS blocked for origin: ${origin}`);
+            callback(new Error('Not allowed by CORS'));
+        }
     },
-    methods: "GET,HEAD,PUT,PATCH,POST,DELETE", credentials: true,
+    methods: "GET,HEAD,PUT,PATCH,POST,DELETE",
+    credentials: true,
 };
 app.use(cors(corsOptions));
-const io = new SocketIOServer(server, { cors: corsOptions });
+
+const io = new SocketIOServer(server, {
+    cors: corsOptions,
+    transports: ['websocket', 'polling']
+});
+
 const PORT = process.env.PORT || 3001;
-app.get('/', (req, res) => { res.send('Meta Tic-Tac-Toe Server Running!'); });
+app.get('/', (req, res) => { res.send('Meticto Server Running!'); });
 
 // --- Instantiate GameManager ---
 const gameManager = new GameManager(io);
