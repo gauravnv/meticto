@@ -14,9 +14,11 @@ const Game: React.FC = () => {
         roomName,
         spectatorCount,
         serverError,
+        rematchOffered,
+        rematchRequested,
         leaveRoom, // Get action from context
         attemptMove, // Get action from context
-        requestResetGame, // Get action from context
+        requestRematch, // Get action from context
     } = useSocketContext();
 
     // Local UI State remains
@@ -38,7 +40,7 @@ const Game: React.FC = () => {
         }
         attemptMove(largeBoardIdx, smallBoardIdx);
     };
-    const handleResetClick = () => { requestResetGame(); };
+    const handleResetClick = () => { requestRematch(); };
     const handleLeaveClick = () => { leaveRoom(); };
 
     // --- Conditional Rendering Logic ---
@@ -46,12 +48,12 @@ const Game: React.FC = () => {
     // 1. Opponent Disconnected State (Show this screen preferentially)
     if (opponentDisconnected) {
        return (
-         <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-gray-900 via-indigo-950 to-gray-900 text-white p-4">
-           <h1 className="text-4xl font-bold mb-4">Meticto</h1>
-           <div className="text-2xl text-red-500 mb-4">Opponent Disconnected</div>
-           <div className="text-xl mb-6">Game ended.</div>
+         <div className="flex flex-col items-center justify-center min-h-screen p-4 text-white bg-gradient-to-br from-gray-900 via-indigo-950 to-gray-900">
+           <h1 className="mb-4 text-4xl font-bold">Meticto</h1>
+           <div className="mb-4 text-2xl text-red-500">Opponent Disconnected</div>
+           <div className="mb-6 text-xl">Game ended.</div>
            {/* Provide button to go back to lobby explicitly */}
-           <button onClick={handleLeaveClick} className="mt-4 px-4 py-2 bg-gray-600 rounded hover:bg-gray-700">Back to Lobby</button>
+           <button onClick={handleLeaveClick} className="px-4 py-2 mt-4 bg-gray-600 rounded hover:bg-gray-700">Back to Lobby</button>
          </div>
        );
     }
@@ -60,12 +62,12 @@ const Game: React.FC = () => {
     // Check !isConnected OR serverError. Added check for roomId to ensure we were meant to be in a game.
     if ((!isConnected || serverError) && roomId && !opponentDisconnected) {
          return (
-            <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-gray-900 via-indigo-950 to-gray-900 text-white p-4">
-                <h1 className="text-4xl font-bold mb-4">Meticto</h1>
-                <div className="text-2xl text-red-500 mb-4">Error</div>
-                <div className="text-xl mb-6">{serverError || "Connection lost."}</div>
+            <div className="flex flex-col items-center justify-center min-h-screen p-4 text-white bg-gradient-to-br from-gray-900 via-indigo-950 to-gray-900">
+                <h1 className="mb-4 text-4xl font-bold">Meticto</h1>
+                <div className="mb-4 text-2xl text-red-500">Error</div>
+                <div className="mb-6 text-xl">{serverError || "Connection lost."}</div>
                 {/* Button to leave room state and return to lobby */}
-                <button onClick={handleLeaveClick} className="mt-4 px-4 py-2 bg-gray-600 rounded hover:bg-gray-700">Back to Lobby</button>
+                <button onClick={handleLeaveClick} className="px-4 py-2 mt-4 bg-gray-600 rounded hover:bg-gray-700">Back to Lobby</button>
             </div>
          );
     }
@@ -74,11 +76,11 @@ const Game: React.FC = () => {
     if (!gameState) {
         // This screen should only show briefly after joining/creating or on reconnect
         return (
-           <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-gray-900 via-indigo-950 to-gray-900 text-white p-4">
-               <h1 className="text-4xl font-bold mb-4">Meticto</h1>
+           <div className="flex flex-col items-center justify-center min-h-screen p-4 text-white bg-gradient-to-br from-gray-900 via-indigo-950 to-gray-900">
+               <h1 className="mb-4 text-4xl font-bold">Meticto</h1>
                <div className="text-2xl text-yellow-400 animate-pulse">Loading game state... {roomName && `(Room: "${roomName}")`}</div>
                {/* Leave button is useful even if stuck loading */}
-               <button onClick={handleLeaveClick} className="mt-6 px-4 py-2 bg-gray-600 rounded hover:bg-gray-700">Back to Lobby</button>
+               <button onClick={handleLeaveClick} className="px-4 py-2 mt-6 bg-gray-600 rounded hover:bg-gray-700">Back to Lobby</button>
            </div>
          );
     }
@@ -125,10 +127,10 @@ const Game: React.FC = () => {
       <div className={`relative flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-gray-900 via-indigo-950 to-gray-900 text-white p-4 pt-16 sm:pt-4 ${isAnimatingTurn ? 'animate-turn-pulse' : ''}`}>
 
         {/* Leave Room Button (Positioned Top Left) */}
-        <div className="absolute top-3 left-3 sm:top-4 sm:left-4 z-20">
+        <div className="absolute z-20 top-3 left-3 sm:top-4 sm:left-4">
              <button
                 onClick={handleLeaveClick}
-                className="px-3 py-1 bg-red-700 hover:bg-red-800 text-white text-xs sm:text-sm font-semibold rounded shadow-md transition duration-150 ease-in-out"
+                className="px-3 py-1 text-xs font-semibold text-white transition duration-150 ease-in-out bg-red-700 rounded shadow-md hover:bg-red-800 sm:text-sm"
                 title="Leave Game Room"
              >
                  Leave
@@ -136,19 +138,19 @@ const Game: React.FC = () => {
         </div>
 
         {/* Game Title */}
-        <h1 className="text-3xl sm:text-4xl font-bold mb-2 sm:mb-4 mt-8 sm:mt-0">Meticto</h1>
+        <h1 className="mt-8 mb-2 text-3xl font-bold sm:text-4xl sm:mb-4 sm:mt-0">Meticto</h1>
 
         {/* Player/Room/Spectator Info Area */}
-        <div className="text-base sm:text-xl mb-1 h-6 font-semibold text-center text-gray-300">{playerInfoText}{roomInfoText}{spectatorInfo}</div>
+        <div className="h-6 mb-1 text-base font-semibold text-center text-gray-300 sm:text-xl">{playerInfoText}{roomInfoText}{spectatorInfo}</div>
 
         {/* Game Status / Turn Indicator */}
-        <div className="text-xl sm:text-2xl mb-4 h-8 text-center">{statusText}</div>
+        <div className="h-8 mb-4 text-xl text-center sm:text-2xl">{statusText}</div>
 
         {/* Display Mid-Game Server Errors */}
-        {serverError && !opponentDisconnected && <p className="absolute top-14 sm:top-auto sm:relative text-red-500 text-xs sm:text-sm mb-2 px-2 text-center">Error: {serverError}</p>}
+        {serverError && !opponentDisconnected && <p className="absolute px-2 mb-2 text-xs text-center text-red-500 top-14 sm:top-auto sm:relative sm:text-sm">Error: {serverError}</p>}
 
         {/* Game Board Area */}
-        <div className="mt-4 w-full max-w-lg">
+        <div className="w-full max-w-lg mt-4">
           <LargeBoard
             // Pass all necessary props derived from gameState and playerRole
             largeBoardState={gameState.largeBoard}
@@ -163,13 +165,26 @@ const Game: React.FC = () => {
 
         {/* Rematch Button: Show only if game is finished AND user was a player */}
         {(gameState.gameStatus !== 'InProgress' && playerRole) && (
-            <button
-                onClick={handleResetClick} // Emits 'REQUEST_RESET_GAME'
-                className="mt-6 px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg shadow-md transition duration-150 ease-in-out"
-                aria-label="Request Rematch"
-            >
-                Request Rematch? {/* Label clearly indicates user action */}
-            </button>
+            <div className="mt-6 text-center">
+                {/* Show message if opponent wants rematch */}
+                {rematchOffered && !rematchRequested && (
+                    <p className="mb-2 text-yellow-400 animate-pulse">Opponent wants a rematch!</p>
+                )}
+                 {/* Show message if you requested rematch */}
+                {rematchRequested && !rematchOffered && (
+                    <p className="mb-2 text-gray-400">Rematch requested. Waiting for opponent...</p>
+                )}
+                {/* Show button: Different text/action based on state */}
+                <button
+                    onClick={handleResetClick}
+                    className="px-6 py-2 font-semibold text-white transition duration-150 ease-in-out bg-indigo-600 rounded-lg shadow-md hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    aria-label={rematchOffered ? "Accept Rematch" : "Request Rematch"}
+                    disabled={rematchRequested} // Disable if already requested
+                >
+                    {/* Change button text based on whether opponent requested */}
+                    {rematchOffered ? "Accept Rematch & Play Again" : (rematchRequested ? "Rematch Requested" : "Request Rematch?")}
+                </button>
+            </div>
         )}
       </div>
     );

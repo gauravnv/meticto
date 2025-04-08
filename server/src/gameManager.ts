@@ -21,11 +21,13 @@ interface GameRoom {
     players: [PlayerInfo | null, PlayerInfo | null];
     gameState: GameState;
     spectators: Set<string>;
+    rematchRequested: [boolean, boolean]
 }
 export interface RoomInfo {
     roomId: string;
     roomName: string;
     playerCount: number;
+    spectatorCount: number; 
     status: RoomStatus;
 }
 
@@ -70,16 +72,24 @@ export class GameManager {
     // --- Room Management ---
     private broadcastRoomList(targetSocket?: Socket) {
         const roomList: RoomInfo[] = [];
-        this.gameRooms.forEach((room) => {
-            if (room.status === "Waiting") {
+        console.log(`broadcastRoomList: Processing ${this.gameRooms.size} rooms...`); // Log total rooms
+        this.gameRooms.forEach((room, roomId) => {
+            console.log(`  -> Checking Room: ${roomId}, Status: ${room.status}`); // Log each room being checked
+            // Check if status allows listing (Waiting, Playing, Finished)
+            if (room.status === 'Waiting' || room.status === 'Playing' || room.status === 'Finished') {
+                console.log(`    ... Adding room ${roomId} to list.`); // Log if added
                 roomList.push({
                     roomId: room.roomId,
                     roomName: room.roomName || `Room ${room.roomId}`,
-                    playerCount: room.players.filter((p) => p !== null).length,
+                    playerCount: room.players.filter(p => p !== null).length,
+                    spectatorCount: room.spectators.size,
                     status: room.status,
                 });
+            } else {
+                 console.log(`    ... Skipping room ${roomId} due to status ${room.status}.`); // Log if skipped
             }
         });
+
         console.log("Broadcasting room list update:", roomList);
         const eventName = "ROOM_LIST_UPDATE";
         if (targetSocket) {
@@ -104,6 +114,7 @@ export class GameManager {
             players: [playerXInfo, null],
             gameState: createInitialGameState(),
             spectators: new Set(),
+            rematchRequested: [false, false]
         };
         this.gameRooms.set(roomId, newRoom);
         this.socketIdToRoomId.set(socketId, roomId);
@@ -135,72 +146,35 @@ export class GameManager {
 
         // --- Try joining as Player O ---
         if (room.status === "Waiting" && room.players[1] === null) {
-            const playerOInfo: PlayerInfo = { socketId, role: "O" };
-            room.players[1] = playerOInfo;
-            room.status = "Playing";
-            this.socketIdToRoomId.set(socketId, roomId);
-            socket.join(roomId); // *** Make sure socket joins the room ***
-            console.log(
-                `[${roomId}] Player O (${socketId}) joined. Room status: ${room.status}`
-            );
-
-            // Notify Player O first
-            socket.emit("YOUR_ROLE", "O");
-            socket.emit("ROOM_JOINED", {
-                roomId,
-                initialState: room.gameState,
-                roomName: room.roomName,
-            });
-
-            // Get Player X info & socket
-            const playerX = room.players[0];
-            const playerXSocket = playerX
-                ? this.io.sockets.sockets.get(playerX.socketId)
-                : null;
-
-            // Notify Player X (if found)
-            if (playerXSocket && playerX) {
-                console.log(
-                    `[${roomId}] Notifying Player X (${playerX.socketId}) game is starting.`
-                );
-                playerXSocket.emit("GAME_START", { opponentId: socketId });
-            } else {
-                console.error(
-                    `[${roomId}] Failed to find Player X socket or info when Player O joined.`
-                );
-            }
-
-            // Update room list (room no longer waiting)
-            this.broadcastRoomList();
-
-            // *** Broadcast assignments and count TO THE ROOM ***
-            console.log(`[${roomId}] Broadcasting final assignments and count.`);
-            this.io.to(roomId).emit("PLAYER_ASSIGNMENT", {
-                playerX: room.players[0]?.socketId,
-                playerO: room.players[1]?.socketId,
-            });
-            this.io
-                .to(roomId)
-                .emit("SPECTATOR_COUNT_UPDATE", { count: room.spectators.size });
+            console.log(`Socket ${socket.id} joining room ${roomId} as Player O.`);
+             const playerOInfo: PlayerInfo = { socketId: socket.id, role: 'O' };
+             room.players[1] = playerOInfo;
+             room.status = 'Playing';
+             console.log(`[${roomId}] Room status updated to: ${room.status}`);
+             this.socketIdToRoomId.set(socket.id, roomId);
+             socket.join(roomId);
+             socket.emit('YOUR_ROLE', 'O');
+             socket.emit('ROOM_JOINED', { roomId, initialState: room.gameState, roomName: room.roomName });
+             const playerX = room.players[0];
+             if (playerX) { this.io.sockets.sockets.get(playerX.socketId)?.emit('GAME_START', { opponentId: socket.id }); }
+             this.broadcastRoomList(); // Update list (room no longer waiting)
+             this.io.to(roomId).emit('PLAYER_ASSIGNMENT', { playerX: room.players[0]?.socketId, playerO: room.players[1]?.socketId });
+             this.io.to(roomId).emit('SPECTATOR_COUNT_UPDATE', { count: room.spectators.size });
         } else if (room.status === "Playing" || room.status === "Finished") {
             // --- Join as Spectator ---
             console.log(`Socket ${socketId} joining room ${roomId} as Spectator.`);
-            if (room.players.some((p) => p?.socketId === socketId)) {
-                socket.emit("ERROR_MESSAGE", "Already a player.");
-                return;
-            }
-            room.spectators.add(socketId);
-            this.socketIdToRoomId.set(socketId, roomId);
-            socket.join(roomId); // *** Make sure socket joins the room ***
-            socket.emit("YOUR_ROLE", null);
-            socket.emit("ROOM_JOINED", {
-                roomId,
-                initialState: room.gameState,
-                roomName: room.roomName,
-            });
-            this.io
-                .to(roomId)
-                .emit("SPECTATOR_COUNT_UPDATE", { count: room.spectators.size });
+            if (room.players.some(p => p?.socketId === socket.id)) {
+                socket.emit('ERROR_MESSAGE', 'You are already a player in this room.'); return;
+           }
+           console.log(`Socket ${socket.id} joining room ${roomId} as Spectator.`);
+           room.spectators.add(socket.id);
+           this.socketIdToRoomId.set(socket.id, roomId);
+           socket.join(roomId);
+           socket.emit('YOUR_ROLE', null); // Spectator role
+           // Use ROOM_JOINED like players for consistency
+           socket.emit('ROOM_JOINED', { roomId, initialState: room.gameState, roomName: room.roomName });
+           // Notify room of spectator count change
+           this.io.to(roomId).emit('SPECTATOR_COUNT_UPDATE', { count: room.spectators.size });
         } else {
             socket.emit(
                 "ERROR_MESSAGE",
@@ -290,20 +264,29 @@ export class GameManager {
         if (opponent) {
             const opponentSocket = this.io.sockets.sockets.get(opponent.socketId);
             if (opponentSocket) {
-                console.log(
-                    `Notifying opponent ${opponent.socketId} in room ${roomId}.`
-                );
-                opponentSocket.emit(
-                    "OPPONENT_DISCONNECTED",
-                    "Your opponent left the game."
-                );
-                // Keep opponent connected but remove from room map, let them leave/refresh
-                opponentSocket.leave(roomId);
-                this.socketIdToRoomId.delete(opponent.socketId);
-                // Don't force disconnect opponent: opponentSocket.disconnect(true);
+                console.log(`Notifying and potentially disconnecting opponent ${opponent.socketId} in room ${roomId}.`);
+                opponentSocket.emit('OPPONENT_DISCONNECTED', 'Your opponent left the game.');
             }
         }
+
+        if (room.spectators.size > 0) {
+            console.log(`[${roomId}] Notifying ${room.spectators.size} spectators game ended due to player disconnect.`);
+            room.spectators.forEach(spectatorId => {
+                const spectatorSocket = this.io.sockets.sockets.get(spectatorId);
+                if (spectatorSocket) {
+                    // Send a specific event or a generic error/end message
+                    spectatorSocket.emit('GAME_ENDED_BY_DISCONNECT', { roomId });
+                    // Make spectator leave the socket.io room (will also happen in cleanupRoom, but belt-and-suspenders)
+                    spectatorSocket.leave(roomId);
+                    // Optionally force disconnect spectator? For now, let client handle returning to lobby on event.
+                    // spectatorSocket.disconnect(true);
+                }
+                // Mapping will be removed in cleanupRoom
+            });
+        }
+
         this.cleanupRoom(roomId); // Removes room state, mappings, notifies list
+        console.log(`Room ${roomId} fully cleaned up due to player disconnect/leave.`);
     }
 
     // --- Game Actions ---
@@ -370,9 +353,6 @@ export class GameManager {
             return;
         }
 
-        console.log(
-            `[${roomId}] Move validated for player ${expectedPlayer}. Applying to copy...`
-        );
         const targetCell = nextGameState.largeBoard[largeBoardIdx]; // Target the cell in the copy
         targetCell.cells[smallBoardIdx] = expectedPlayer;
 
@@ -432,8 +412,10 @@ export class GameManager {
         room.gameState = nextGameState; // Assign the updated copy back
 
         // Update room status if game ended
-        if (room.gameState.gameStatus !== "InProgress") {
-            room.status = "Finished";
+        if (room.gameState.gameStatus !== 'InProgress' && room.status === 'Playing') {
+            console.log(`[${room.roomId}] Game finished. Setting room status to Finished.`);
+            room.status = 'Finished';
+            // Broadcast updated room list because status changed
             this.broadcastRoomList();
         }
 
@@ -442,53 +424,104 @@ export class GameManager {
         this.io.to(roomId!).emit("GAME_STATE_UPDATE", room.gameState); // Broadcast the state FROM the room
     } 
 
-    handleResetGameRequest(socketId: string) {
+    handleRematchRequest(socketId: string) {
         const roomId = this.socketIdToRoomId.get(socketId);
         const room = roomId ? this.gameRooms.get(roomId) : null;
-        if (!room) {
-            console.log(`Reset request ignored: Not in room ${roomId}.`);
-            return;
+        if (!room) { console.log(`Rematch request ignored: Not in room ${roomId}.`); return; }
+        // Allow request only if game is Finished
+        if (room.status !== 'Finished') { console.log(`[${roomId}] Rematch request ignored: Game status is ${room.status}.`); return; }
+
+        const playerIndex = room.players.findIndex(p => p?.socketId === socketId);
+        if (playerIndex === -1) { console.log(`[${roomId}] Rematch request ignored: Requester ${socketId} not player.`); return; }
+
+        const requestingPlayerRole = room.players[playerIndex]?.role; // 'X' or 'O'
+        console.log(`[${roomId}] Received rematch request from Player ${requestingPlayerRole} (${socketId})`);
+
+        // Mark this player as wanting rematch
+        room.rematchRequested[playerIndex] = true;
+
+        // Notify opponent
+        const opponentIndex = playerIndex === 0 ? 1 : 0;
+        const opponent = room.players[opponentIndex];
+        if (opponent) {
+            const opponentSocket = this.io.sockets.sockets.get(opponent.socketId);
+            // Send event telling opponent that player X/O wants a rematch
+            opponentSocket?.emit('OPPONENT_WANTS_REMATCH', { requestingPlayer: requestingPlayerRole });
         }
-        // Allow reset only if game is Finished (or maybe anytime?) - Let's stick to Finished for now.
-        if (room.status !== "Finished") {
-            console.log(
-                `[${roomId}] Reset request ignored: Game status is ${room.status}.`
-            );
-            return;
+
+        // Notify requester that their request was registered (optional)
+        // socket.emit('REMATCH_REQUEST_ACKNOWLEDGED');
+
+        // Check if BOTH players have now requested a rematch
+        if (room.rematchRequested[0] && room.rematchRequested[1]) {
+            console.log(`[${roomId}] Both players want a rematch! Starting new game.`);
+            this.startRematch(room); // Call separate function to handle reset/swap
+        } else {
+             console.log(`[${roomId}] Waiting for opponent's rematch request.`);
+             // Maybe notify requester that we are waiting?
+             const socket = this.io.sockets.sockets.get(socketId);
+             socket?.emit('WAITING_FOR_REMATCH_APPROVAL');
         }
-        const isPlayer = room.players.some((p) => p?.socketId === socketId);
-        if (!isPlayer) {
-            console.log(
-                `[${roomId}] Reset request ignored: Requester ${socketId} not player.`
-            );
-            return;
-        }
+   }
 
-        console.log(
-            `[${roomId}] Received reset request from player ${socketId}. Resetting room...`
-        );
+   private startRematch(room: GameRoom) {
+    const roomId = room.roomId;
 
-        // --- TODO: Implement proper Rematch Logic ---
-        // 1. Swap Player Roles (X becomes O, O becomes X)
-        // 2. For now: Simple Reset - Keep roles, reset board, set status to Playing
+    // 1. Swap Player Roles
+    const oldPlayerX = room.players[0];
+    const oldPlayerO = room.players[1];
 
-        // Reset game state
-        room.gameState = createInitialGameState();
-        // Set room status back to Playing
-        room.status = "Playing";
-
-        console.log(`[${roomId}] Broadcasting GAME_START after reset.`);
-        // Emit GAME_START to both players with the fresh initial state
-        // This clearly signals the game view should reset and become active
-        this.io.to(roomId!).emit("GAME_START", {
-            roomId,
-            initialState: room.gameState,
-            // Optionally send updated roles if they were swapped
-        });
-
-        // Update room list as status changed (no longer Finished)
-        this.broadcastRoomList();
+    if (!oldPlayerX || !oldPlayerO) {
+        console.error(`[${roomId}] Cannot start rematch, player info missing.`);
+        // Maybe notify clients of error?
+        return;
     }
+
+    // Create new PlayerInfo with swapped roles
+    const newPlayerX: PlayerInfo = { socketId: oldPlayerO.socketId, role: 'X' }; // Old O is new X
+    const newPlayerO: PlayerInfo = { socketId: oldPlayerX.socketId, role: 'O' }; // Old X is new O
+
+    room.players = [newPlayerX, newPlayerO]; // Update player array
+
+    // 2. Reset Game State
+    room.gameState = createInitialGameState(); // Fresh state (X starts by default)
+
+    // 3. Reset Rematch Flags
+    room.rematchRequested = [false, false];
+
+    // 4. Set Room Status back to Playing
+    room.status = 'Playing';
+
+    // 5. Notify Clients
+    console.log(`[${roomId}] Broadcasting GAME_START for rematch. New X: ${newPlayerX.socketId}, New O: ${newPlayerO.socketId}`);
+
+    // Notify Player X (Old O) of their new role and start game
+    this.io.sockets.sockets.get(newPlayerX.socketId)?.emit('YOUR_ROLE', 'X');
+    this.io.sockets.sockets.get(newPlayerX.socketId)?.emit('GAME_START', {
+         roomId,
+         initialState: room.gameState,
+         // opponentId: newPlayerO.socketId // Can send opponent info
+    });
+
+    // Notify Player O (Old X) of their new role and start game
+     this.io.sockets.sockets.get(newPlayerO.socketId)?.emit('YOUR_ROLE', 'O');
+     this.io.sockets.sockets.get(newPlayerO.socketId)?.emit('GAME_START', {
+         roomId,
+         initialState: room.gameState,
+         // opponentId: newPlayerX.socketId
+     });
+
+    // Notify spectators (if any) game is restarting (just send new state)
+    room.spectators.forEach(specId => {
+        this.io.sockets.sockets.get(specId)?.emit('GAME_STATE_UPDATE', room.gameState);
+    });
+
+    // Broadcast new assignments
+    this.io.to(roomId).emit('PLAYER_ASSIGNMENT', { playerX: newPlayerX.socketId, playerO: newPlayerO.socketId });
+
+    // Update Lobby List (status changed back to Playing)
+    this.broadcastRoomList();
+}
 
     // --- Private Helpers ---
     private generateRoomId(): string {

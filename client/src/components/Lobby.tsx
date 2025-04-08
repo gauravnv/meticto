@@ -1,33 +1,143 @@
+// client/src/components/Lobby.tsx
 import React, { useState } from 'react';
+// Ensure RoomInfo includes the fields added on the server (spectatorCount, status)
 import { RoomInfo } from '../types';
 
-interface LobbyProps { roomList: RoomInfo[]; onCreateRoom: (roomName?: string) => void; onJoinRoom: (roomId: string) => void; isConnecting: boolean; serverError: string | null; }
+interface LobbyProps {
+    roomList: RoomInfo[]; // Expecting the updated RoomInfo structure
+    onCreateRoom: (roomName?: string) => void;
+    onJoinRoom: (roomId: string) => void; // Used for both joining and spectating
+    isConnecting: boolean;
+    serverError: string | null;
+}
 
-const Lobby: React.FC<LobbyProps> = ({ roomList, onCreateRoom, onJoinRoom, isConnecting, serverError }) => {
+const Lobby: React.FC<LobbyProps> = ({
+    roomList,
+    onCreateRoom,
+    onJoinRoom, // Renamed for clarity, handles joining Waiting or Spectating others
+    isConnecting,
+    serverError,
+}) => {
     const [newRoomName, setNewRoomName] = useState('');
-    const handleCreateClick = () => { onCreateRoom(newRoomName.trim() || undefined); setNewRoomName(''); };
+
+    const handleCreateClick = () => {
+        // Trim whitespace, send undefined if empty so server uses default name
+        onCreateRoom(newRoomName.trim() || undefined);
+        setNewRoomName(''); // Clear input
+    };
+
+    // Helper function to get Tailwind color class based on room status
+    const getStatusColor = (status: RoomInfo['status']): string => {
+        switch (status) {
+            case 'Waiting':
+                return 'text-yellow-400';
+            case 'Playing':
+                return 'text-green-400';
+            case 'Finished':
+                return 'text-gray-500';
+            default:
+                return 'text-gray-400'; // Fallback
+        }
+    };
 
     return (
-        <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-gray-800 via-gray-900 to-gray-800 text-white p-6">
-            <h1 className="text-4xl font-bold mb-8 text-indigo-400">Meticto Lobby</h1>
-            {isConnecting && <p className="text-yellow-400 animate-pulse mb-4">Connecting...</p>}
-            {serverError && <p className="text-red-500 mb-4 font-semibold">Error: {serverError}</p>}
+        <div className="flex flex-col items-center justify-center min-h-screen p-6 text-white bg-gradient-to-br from-gray-800 via-gray-900 to-gray-800">
+            <h1 className="mb-8 text-4xl font-bold text-indigo-400">Game Lobby</h1>
+
+            {/* Connection/Error Status */}
+            {isConnecting && (
+                <p className="mb-4 text-yellow-400 animate-pulse">Connecting...</p>
+            )}
+            {serverError && (
+                <p className="mb-4 font-semibold text-red-500">Error: {serverError}</p>
+            )}
+
             {/* Create Room Section */}
-            <div className="mb-8 p-4 border border-indigo-700 rounded-lg w-full max-w-md">
-                <h2 className="text-2xl font-semibold mb-3 text-indigo-300">Create New Room</h2>
-                <div className="flex flex-col sm:flex-row gap-2">
-                    <input type="text" value={newRoomName} onChange={(e) => setNewRoomName(e.target.value)} placeholder="Optional room name" maxLength={30} className="flex-grow px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500" disabled={isConnecting} />
-                    <button onClick={handleCreateClick} className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded shadow-md transition duration-150 ease-in-out disabled:opacity-50 disabled:cursor-not-allowed" disabled={isConnecting} > Create Room </button>
+            <div className="w-full max-w-md p-4 mb-8 border border-indigo-700 rounded-lg">
+                <h2 className="mb-3 text-2xl font-semibold text-indigo-300">
+                    Create New Room
+                </h2>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                    <input
+                        type="text"
+                        value={newRoomName}
+                        onChange={(e) => setNewRoomName(e.target.value)}
+                        placeholder="Optional room name"
+                        maxLength={30} // Match server sanitization limit
+                        className="flex-grow px-3 py-2 text-white placeholder-gray-400 bg-gray-700 border border-gray-600 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        disabled={isConnecting}
+                    />
+                    <button
+                        onClick={handleCreateClick}
+                        className="px-5 py-2 font-semibold text-white transition duration-150 ease-in-out bg-indigo-600 rounded shadow-md hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                        disabled={isConnecting}
+                    >
+                        Create Room
+                    </button>
                 </div>
             </div>
-            {/* Join Room Section */}
+
+            {/* Join/Spectate Room Section */}
             <div className="w-full max-w-md">
-                <h2 className="text-2xl font-semibold mb-3 text-indigo-300">Join Waiting Room</h2>
-                {roomList.length === 0 ? ( <p className="text-gray-400">No rooms available to join.</p> ) : (
-                    <ul className="space-y-2"> {roomList.map((room) => ( <li key={room.roomId} className="flex justify-between items-center p-3 bg-gray-700/50 border border-gray-600 rounded hover:bg-gray-700/80"> <span className="font-medium">{room.roomName}</span> <button onClick={() => onJoinRoom(room.roomId)} className="px-4 py-1 bg-green-600 hover:bg-green-700 text-white text-sm font-semibold rounded shadow transition duration-150 ease-in-out disabled:opacity-50 disabled:cursor-not-allowed" disabled={isConnecting} > Join </button> </li> ))} </ul>
+                <h2 className="mb-3 text-2xl font-semibold text-indigo-300">
+                    Available Games
+                </h2>
+                {/* Show message if list is empty */}
+                {!isConnecting && roomList.length === 0 && (
+                    <p className="text-gray-400">No active games found. Why not create one?</p>
+                )}
+                {/* Display list of rooms */}
+                {roomList.length > 0 && (
+                    <ul className="space-y-2">
+                        {roomList.map((room) => (
+                            <li
+                                key={room.roomId}
+                                className="flex flex-col items-start justify-between gap-2 p-3 transition-colors duration-150 border border-gray-600 rounded sm:flex-row sm:items-center bg-gray-700/50 hover:bg-gray-600/80" // Added hover effect
+                            >
+                                {/* Room Info */}
+                                <div className="flex-grow">
+                                    <span className="mr-2 font-medium">{room.roomName}</span>
+                                    {/* Display Status with Color */}
+                                    <span className={`text-sm font-semibold ${getStatusColor(room.status)}`}>
+                                        ({room.status})
+                                    </span>
+                                    {/* Display Player/Spectator Count */}
+                                    <span className="block text-xs text-gray-400 sm:inline sm:ml-2">
+                                        ({room.playerCount}/2 Players{room.spectatorCount > 0 ? `, ${room.spectatorCount} Watching` : ''})
+                                    </span>
+                                </div>
+                                {/* Action Buttons */}
+                                <div className="flex self-end gap-2 sm:self-center">
+                                    {/* Show JOIN button only if Waiting */}
+                                    {room.status === 'Waiting' && (
+                                        <button
+                                            onClick={() => onJoinRoom(room.roomId)}
+                                            className="px-4 py-1 text-sm font-semibold text-white transition duration-150 ease-in-out bg-green-600 rounded shadow hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                            disabled={isConnecting}
+                                            title="Join as Player O"
+                                        >
+                                            Join
+                                        </button>
+                                    )}
+                                    {/* Show SPECTATE button if Playing or Finished */}
+                                    {(room.status === 'Playing' || room.status === 'Finished') && (
+                                         <button
+                                            onClick={() => onJoinRoom(room.roomId)} // Same event, server differentiates logic
+                                            className="px-4 py-1 text-sm font-semibold text-white transition duration-150 ease-in-out bg-blue-600 rounded shadow hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                            disabled={isConnecting}
+                                            title="Watch Game"
+                                        >
+                                            Spectate
+                                        </button>
+                                    )}
+                                </div>
+                            </li>
+                        ))}
+                    </ul>
                 )}
             </div>
         </div>
     );
 };
+
 export default Lobby;

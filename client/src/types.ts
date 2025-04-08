@@ -18,12 +18,14 @@ export interface GameState {
     largeWinningLine: number[] | null;
 }
 
-// Type for room info received from server
+export type RoomStatus = 'Waiting' | 'Playing' | 'Finished';
+
 export interface RoomInfo {
     roomId: string;
     roomName: string;
     playerCount: number;
-    status: 'Waiting' | 'Playing' | 'Finished'; // Match server RoomStatus
+    spectatorCount: number;
+    status: RoomStatus; // Match server RoomStatus
 }
 
 export function isSmallBoardFinished(status: SmallBoardStatus): boolean {

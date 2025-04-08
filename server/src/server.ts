@@ -56,9 +56,8 @@ io.on('connection', (socket: Socket) => {
     socket.on('JOIN_ROOM', (data: { roomId: string }) => { if (data && typeof data.roomId === 'string') { gameManager.handleJoinRoom(socket, data.roomId); } else { socket.emit('ERROR_MESSAGE', 'Invalid JOIN_ROOM data.'); } });
     socket.on('LEAVE_ROOM', () => { gameManager.handleLeaveRoom(socket); });
     socket.on('ATTEMPT_MOVE', (data: { largeBoardIdx: number; smallBoardIdx: number }) => { if (data && typeof data.largeBoardIdx === 'number' && typeof data.smallBoardIdx === 'number') { gameManager.handleAttemptMove(socket.id, data); } else { socket.emit('ERROR_MESSAGE', 'Invalid ATTEMPT_MOVE data.'); } });
-    socket.on('REQUEST_RESET_GAME', () => { gameManager.handleResetGameRequest(socket.id); });
+    socket.on('REQUEST_REMATCH', () => { gameManager.handleRematchRequest(socket.id); });
     socket.on('disconnect', (reason: string) => { gameManager.handleDisconnect(socket); });
-    // Add other listeners here - chat
 });
 
 // Start the server

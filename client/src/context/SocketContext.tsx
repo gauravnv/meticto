@@ -15,6 +15,8 @@ interface SocketState {
     roomList: RoomInfo[];
     serverError: string | null;
     spectatorCount: number;
+    rematchOffered: boolean
+    rematchRequested: boolean; // New state to track rematch requests
 }
 
 const initialState: SocketState = {
@@ -28,6 +30,8 @@ const initialState: SocketState = {
     roomList: [],
     serverError: null,
     spectatorCount: 0,
+    rematchOffered: false,
+    rematchRequested: false,
 };
 
 // --- Action Types ---
@@ -41,7 +45,12 @@ type SocketAction =
     | { type: 'SET_SPECTATOR_COUNT'; payload: number }
     | { type: 'SET_ERROR'; payload: string | null }
     | { type: 'OPPONENT_DISCONNECTED' }
-    | { type: 'RESET_ROOM_STATE' }; // For leaving room or disconnect
+    | { type: 'RESET_ROOM_STATE' }
+    | { type: 'GAME_ENDED_BY_DISCONNECT' }
+    | { type: 'OPPONENT_WANTS_REMATCH' }
+    | { type: 'I_REQUESTED_REMATCH' } // Acknowledge our request
+    | { type: 'REMATCH_DECLINED' } // Optional: If opponent leaves/disconnects after request
+    | { type: 'RESET_REMATCH_FLAGS' };
 
 // --- Reducer ---
 const socketReducer = (state: SocketState, action: SocketAction): SocketState => {
@@ -82,10 +91,24 @@ const socketReducer = (state: SocketState, action: SocketAction): SocketState =>
         case 'OPPONENT_DISCONNECTED':
             // Keep roomId/roomName but clear game state and role? Mark as disconnected.
             return { ...state, opponentDisconnected: true, serverError: "Opponent disconnected.", gameState: null, playerRole: null, spectatorCount: 0 };
+        case 'GAME_ENDED_BY_DISCONNECT': // <-- HANDLE NEW ACTION
+            // Similar to opponent disconnect, but maybe different message? Reset state.
+            console.log("Reducer: Game ended by disconnect (likely player left). Resetting room state.");
+            return { ...state, // Keep connection status and room list
+                    gameState: null, playerRole: null, opponentJoined: false, opponentDisconnected: true, // Set flag true here too? Or maybe a different flag? Let's use opponentDisconnected for now.
+                    roomId: null, roomName: null, serverError: "Game ended: A player disconnected.", spectatorCount: 0 };
         case 'RESET_ROOM_STATE': // Used on leave or sometimes disconnect cleanup
              return { ...state, // Keep connection status and room list
                   gameState: null, playerRole: null, opponentJoined:false, opponentDisconnected: false,
                   roomId: null, roomName: null, serverError: null, spectatorCount: 0 };
+        case 'OPPONENT_WANTS_REMATCH':
+            return { ...state, rematchOffered: true };
+        case 'I_REQUESTED_REMATCH':
+                return { ...state, rematchRequested: true };
+        case 'REMATCH_DECLINED': // Optional: If needed
+                return { ...state, rematchOffered: false, serverError: "Opponent declined rematch or left." };
+        case 'RESET_REMATCH_FLAGS': // Explicit reset action if needed
+                return { ...state, rematchOffered: false, rematchRequested: false };
         default:
             return state;
     }
@@ -99,7 +122,7 @@ interface SocketContextValue extends SocketState {
     joinRoom: (roomId: string) => void;
     leaveRoom: () => void;
     attemptMove: (largeBoardIdx: number, smallBoardIdx: number) => void;
-    requestResetGame: () => void;
+    requestRematch: () => void;
 }
 
 // Create context with a default value (can be undefined if Provider is guaranteed)
@@ -118,7 +141,13 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
     const joinRoom = useCallback((roomIdToJoin: string) => { console.log(`Provider: Emitting JOIN_ROOM for ${roomIdToJoin}`); socket.emit('JOIN_ROOM', { roomId: roomIdToJoin }); }, []);
     const leaveRoom = useCallback(() => { if (state.roomId) { console.log(`Provider: Emitting LEAVE_ROOM for ${state.roomId}`); socket.emit('LEAVE_ROOM'); dispatch({ type: 'RESET_ROOM_STATE' }); } }, [state.roomId]); // Dispatch reset locally immediately
     const attemptMove = useCallback((largeBoardIdx: number, smallBoardIdx: number) => { console.log(`Provider: Emitting ATTEMPT_MOVE`); socket.emit('ATTEMPT_MOVE', { largeBoardIdx, smallBoardIdx }); }, []);
-    const requestResetGame = useCallback(() => { if (state.roomId) { console.log(`Provider: Emitting REQUEST_RESET_GAME for ${state.roomId}`); socket.emit('REQUEST_RESET_GAME'); } }, [state.roomId]);
+    const requestRematch = useCallback(() => {
+        if (state.roomId && state.gameState?.gameStatus !== 'InProgress') { // Only if game finished
+             console.log(`Provider: Emitting REQUEST_REMATCH for ${state.roomId}`);
+             socket.emit('REQUEST_REMATCH'); // Emit new event name
+             dispatch({ type: 'I_REQUESTED_REMATCH' }); // Update local state immediately
+        }
+    }, [state.roomId, state.gameState?.gameStatus]);
 
     // --- Effect for Socket Listeners ---
     useEffect(() => {
@@ -136,10 +165,22 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
         const handleOpponentDisconnect = () => dispatch({ type: 'OPPONENT_DISCONNECTED' });
         const handleSpectatorCount = (data: { count: number }) => dispatch({ type: 'SET_SPECTATOR_COUNT', payload: data.count });
         const handleErrorMessage = (msg: string) => dispatch({ type: 'SET_ERROR', payload: msg });
+        const handleGameEndedByDisconnect = () => dispatch({ type: 'GAME_ENDED_BY_DISCONNECT' });
+        const handleOpponentWantsRematch = (data: { requestingPlayer: Player }) => {
+            console.log(`Provider: Opponent ${data.requestingPlayer} wants rematch.`);
+            dispatch({ type: 'OPPONENT_WANTS_REMATCH' });
+        };
+        const handleWaitingForRematch = () => {
+            console.log("Provider: Waiting for opponent's rematch approval.");
+            // Already handled by setting rematchRequested=true locally, could add specific state if needed
+        };
 
         // Register listeners
         socket.on('connect', handleConnect); socket.on('disconnect', handleDisconnect); socket.on('connect_error', handleConnectError);
         socket.on('GAME_STATE_UPDATE', handleGameStateUpdate); socket.on('YOUR_ROLE', handleYourRole); socket.on('ROOM_LIST_UPDATE', handleRoomListUpdate); socket.on('ROOM_JOINED', handleRoomJoined); socket.on('GAME_START', handleGameStart); socket.on('OPPONENT_DISCONNECTED', handleOpponentDisconnect); socket.on('SPECTATOR_COUNT_UPDATE', handleSpectatorCount); socket.on('ERROR_MESSAGE', handleErrorMessage);
+        socket.on('GAME_ENDED_BY_DISCONNECT', handleGameEndedByDisconnect); 
+        socket.on('OPPONENT_WANTS_REMATCH', handleOpponentWantsRematch);
+        socket.on('WAITING_FOR_REMATCH_APPROVAL', handleWaitingForRematch);
 
         // Initial connection attempt
         if (!socket.connected) {
@@ -157,6 +198,7 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
             console.log("Provider Effect: Cleaning up listeners...");
             socket.off('connect', handleConnect); socket.off('disconnect', handleDisconnect); socket.off('connect_error', handleConnectError);
             socket.off('GAME_STATE_UPDATE', handleGameStateUpdate); socket.off('YOUR_ROLE', handleYourRole); socket.off('ROOM_LIST_UPDATE', handleRoomListUpdate); socket.off('ROOM_JOINED', handleRoomJoined); socket.off('GAME_START', handleGameStart); socket.off('OPPONENT_DISCONNECTED', handleOpponentDisconnect); socket.off('SPECTATOR_COUNT_UPDATE', handleSpectatorCount); socket.off('ERROR_MESSAGE', handleErrorMessage);
+            socket.off('GAME_ENDED_BY_DISCONNECT', handleGameEndedByDisconnect);
         };
     }, [dispatch, state.isConnected]); // Include dispatch in deps array
 
@@ -168,7 +210,7 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
         joinRoom,
         leaveRoom,
         attemptMove,
-        requestResetGame,
+        requestRematch,
     };
 
     return <SocketContext.Provider value={value}>{children}</SocketContext.Provider>;
