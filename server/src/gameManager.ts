@@ -21,7 +21,9 @@ interface GameRoom {
     players: [PlayerInfo | null, PlayerInfo | null];
     gameState: GameState;
     spectators: Set<string>;
-    rematchRequested: [boolean, boolean]
+    rematchRequested: [boolean, boolean];
+    turnDuration: number | null;
+    activeTurnTimer: NodeJS.Timeout | null;
 }
 export interface RoomInfo {
     roomId: string;
@@ -72,12 +74,9 @@ export class GameManager {
     // --- Room Management ---
     private broadcastRoomList(targetSocket?: Socket) {
         const roomList: RoomInfo[] = [];
-        console.log(`broadcastRoomList: Processing ${this.gameRooms.size} rooms...`); // Log total rooms
         this.gameRooms.forEach((room, roomId) => {
-            console.log(`  -> Checking Room: ${roomId}, Status: ${room.status}`); // Log each room being checked
             // Check if status allows listing (Waiting, Playing, Finished)
             if (room.status === 'Waiting' || room.status === 'Playing' || room.status === 'Finished') {
-                console.log(`    ... Adding room ${roomId} to list.`); // Log if added
                 roomList.push({
                     roomId: room.roomId,
                     roomName: room.roomName || `Room ${room.roomId}`,
@@ -99,7 +98,7 @@ export class GameManager {
         }
     }
 
-    handleCreateRoom(socket: Socket, roomName?: string) {
+    handleCreateRoom(socket: Socket, roomOptions?: { roomName?: string, duration?: number }) { // Expect options object
         const socketId = socket.id;
         if (this.socketIdToRoomId.has(socketId)) {
             socket.emit("ERROR_MESSAGE", "Already in a room.");
@@ -107,26 +106,40 @@ export class GameManager {
         }
         const roomId = this.generateRoomId();
         const playerXInfo: PlayerInfo = { socketId, role: "X" };
+
+        // --- Validate and set turn duration ---
+        const allowedDurations = [15, 30, 60]; // Allowed seconds
+        let validatedDuration: number | null = null;
+        if (roomOptions?.duration && allowedDurations.includes(roomOptions.duration)) {
+            validatedDuration = roomOptions.duration;
+        } else if (roomOptions?.duration) {
+            console.warn(`[${roomId}] Received invalid duration ${roomOptions.duration}. Defaulting to None.`);
+        }
+        // ---
+
         const newRoom: GameRoom = {
             roomId,
-            roomName: this.sanitizeRoomName(roomName) || `Room ${roomId}`,
+            roomName: this.sanitizeRoomName(roomOptions?.roomName) || `Room ${roomId}`,
             status: "Waiting",
             players: [playerXInfo, null],
             gameState: createInitialGameState(),
             spectators: new Set(),
-            rematchRequested: [false, false]
+            rematchRequested: [false, false],
+            turnDuration: validatedDuration, // Store the validated duration
+            activeTurnTimer: null,
         };
         this.gameRooms.set(roomId, newRoom);
         this.socketIdToRoomId.set(socketId, roomId);
         socket.join(roomId); // *** Make sure socket joins the room ***
-        console.log(
-            `Room ${roomId} ('${newRoom.roomName}') created by ${socketId} (Player X).`
-        );
+
+        console.log(`[${roomId}] Room "${newRoom.roomName}" created. Turn duration: ${validatedDuration ?? 'None'} seconds.`);
+
         socket.emit("YOUR_ROLE", "X");
         socket.emit("ROOM_JOINED", {
             roomId,
             initialState: newRoom.gameState,
             roomName: newRoom.roomName,
+            // Optionally send duration back if needed: turnDuration: newRoom.turnDuration
         });
         this.broadcastRoomList();
     }
@@ -162,11 +175,9 @@ export class GameManager {
              this.io.to(roomId).emit('SPECTATOR_COUNT_UPDATE', { count: room.spectators.size });
         } else if (room.status === "Playing" || room.status === "Finished") {
             // --- Join as Spectator ---
-            console.log(`Socket ${socketId} joining room ${roomId} as Spectator.`);
             if (room.players.some(p => p?.socketId === socket.id)) {
                 socket.emit('ERROR_MESSAGE', 'You are already a player in this room.'); return;
            }
-           console.log(`Socket ${socket.id} joining room ${roomId} as Spectator.`);
            room.spectators.add(socket.id);
            this.socketIdToRoomId.set(socket.id, roomId);
            socket.join(roomId);
@@ -181,7 +192,7 @@ export class GameManager {
                 `Cannot join room '${room.roomName || roomId}': Status is ${room.status}.`
             );
         }
-    } // End handleJoinRoom
+    }
 
     handleLeaveRoom(socket: Socket) {
         const socketId = socket.id;
@@ -299,7 +310,7 @@ export class GameManager {
 
         // --- Basic Checks ---
         if (!room) {
-            console.log(`Move attempt ignored: Not in room ${roomId}.`);
+            console.log(`[${roomId}] Move attempt ignored: Not in room.`); // Simplified log
             return;
         }
         if (room.status !== "Playing") {
@@ -319,7 +330,8 @@ export class GameManager {
 
         // --- Validation (Operate on the COPY - nextGameState) ---
         if (actualPlayerRole !== expectedPlayer) {
-            console.log(`[${roomId}] Validation Failed: Wrong player.`);
+            console.log(`[${roomId}] Validation Failed: Not ${expectedPlayer}'s turn (Attempt by: ${actualPlayerRole || 'Spectator?'}).`);
+            this.sendErrorToSocket(socketId, "Not your turn."); // Send specific error
             return;
         }
         const { largeBoardIdx, smallBoardIdx } = data;
@@ -330,29 +342,38 @@ export class GameManager {
             smallBoardIdx > 8
         ) {
             console.log(`[${roomId}] Validation Failed: Invalid index.`);
+             this.sendErrorToSocket(socketId, "Invalid move index.");
             return;
         }
         const currentLargeBoardCell = nextGameState.largeBoard[largeBoardIdx]; // Check copy
         if (nextGameState.gameStatus !== "InProgress") {
             console.log(`[${roomId}] Validation Failed: Game over.`);
+             this.sendErrorToSocket(socketId, "Game is already over.");
             return;
         }
         if (
             nextGameState.activeBoardIndex !== null &&
             nextGameState.activeBoardIndex !== largeBoardIdx
         ) {
-            console.log(`[${roomId}] Validation Failed: Wrong board.`);
+            console.log(`[${roomId}] Validation Failed: Wrong board (Expected: ${nextGameState.activeBoardIndex}, Got: ${largeBoardIdx}).`);
+            this.sendErrorToSocket(socketId, `Must play in board ${nextGameState.activeBoardIndex + 1}.`);
             return;
         }
         if (isSmallBoardFinished(currentLargeBoardCell.status)) {
-            console.log(`[${roomId}] Validation Failed: Board finished.`);
+            console.log(`[${roomId}] Validation Failed: Board ${largeBoardIdx} finished.`);
+            this.sendErrorToSocket(socketId, `Board ${largeBoardIdx + 1} is already finished.`);
             return;
         }
         if (currentLargeBoardCell.cells[smallBoardIdx] !== null) {
             console.log(`[${roomId}] Validation Failed: Cell taken.`);
+             this.sendErrorToSocket(socketId, "Cell already taken.");
             return;
         }
 
+        // --- Clear existing timer BEFORE processing move ---
+        this.clearTurnTimer(room);
+
+        // --- Apply Move (on copy) ---
         const targetCell = nextGameState.largeBoard[largeBoardIdx]; // Target the cell in the copy
         targetCell.cells[smallBoardIdx] = expectedPlayer;
 
@@ -380,49 +401,50 @@ export class GameManager {
             if (largeBoardResult.winner) {
                 nextGameState.gameStatus = largeBoardResult.winner;
                 nextGameState.largeWinningLine = largeBoardResult.winningLine;
-                nextGameState.activeBoardIndex = null;
+                nextGameState.activeBoardIndex = null; // Game over, no active board
             } else if (largeBoardResult.isDraw) {
                 nextGameState.gameStatus = "Draw";
                 nextGameState.largeWinningLine = null;
-                nextGameState.activeBoardIndex = null;
-            } else {
-                nextGameState.largeWinningLine = null;
+                nextGameState.activeBoardIndex = null; // Game over, no active board
             }
-        }
-        if (nextGameState.gameStatus === "InProgress") {
-            nextGameState.largeWinningLine = null;
+            // No 'else' needed here for large board, winningLine defaults to null
         }
 
-        // Determine Next Active Board & Switch Player (on copy)
+        // Determine Next Active Board & Switch Player (on copy) - Only if game still in progress
         if (nextGameState.gameStatus === "InProgress") {
-            const nextActiveBoardIdx = smallBoardIdx;
-            const nextBoardStatus =
-                nextGameState.largeBoard[nextActiveBoardIdx]?.status;
-            const nextBoardIsFinished = nextBoardStatus
-                ? isSmallBoardFinished(nextBoardStatus)
-                : false;
-            nextGameState.activeBoardIndex = nextBoardIsFinished
-                ? null
-                : nextActiveBoardIdx;
+            const nextActiveBoardIdx = smallBoardIdx; // The cell played determines the next board
+            const nextBoardStatus = nextGameState.largeBoard[nextActiveBoardIdx]?.status;
+            // Check if the *next* board is already finished
+            const nextBoardIsFinished = isSmallBoardFinished(nextBoardStatus);
+            nextGameState.activeBoardIndex = nextBoardIsFinished ? null : nextActiveBoardIdx;
             nextGameState.currentPlayer = expectedPlayer === "X" ? "O" : "X";
+        } else {
+            // Game has ended, ensure no active board and player doesn't switch
+            nextGameState.activeBoardIndex = null;
+            // Keep currentPlayer as the one who made the winning/drawing move? Or clear?
+            // Let's keep it as the player who made the last move for now.
         }
 
         // --- Update the room's actual game state with the modified copy ---
-        console.log(`[${roomId}] Updating room state with modified copy.`);
+        console.log(`[${roomId}] Move successful. Updating room state.`);
         room.gameState = nextGameState; // Assign the updated copy back
 
         // Update room status if game ended
         if (room.gameState.gameStatus !== 'InProgress' && room.status === 'Playing') {
-            console.log(`[${room.roomId}] Game finished. Setting room status to Finished.`);
+            console.log(`[${roomId}] Game finished (${room.gameState.gameStatus}). Setting room status to Finished.`);
             room.status = 'Finished';
-            // Broadcast updated room list because status changed
-            this.broadcastRoomList();
+            this.broadcastRoomList(); // Broadcast updated room list
         }
 
         // --- Broadcast the NEWLY ASSIGNED state ---
         console.log(`[${roomId}] Broadcasting updated game state.`);
-        this.io.to(roomId!).emit("GAME_STATE_UPDATE", room.gameState); // Broadcast the state FROM the room
-    } 
+        this.io.to(roomId!).emit("GAME_STATE_UPDATE", room.gameState);
+
+        // --- Start timer for the NEXT player (if applicable) ---
+        if (room.gameState.gameStatus === 'InProgress') {
+            this.startTurnTimer(room); // Start timer for the player whose turn it now is
+        }
+    }
 
     handleRematchRequest(socketId: string) {
         const roomId = this.socketIdToRoomId.get(socketId);
@@ -493,7 +515,6 @@ export class GameManager {
     room.status = 'Playing';
 
     // 5. Notify Clients
-    console.log(`[${roomId}] Broadcasting GAME_START for rematch. New X: ${newPlayerX.socketId}, New O: ${newPlayerO.socketId}`);
 
     // Notify Player X (Old O) of their new role and start game
     this.io.sockets.sockets.get(newPlayerX.socketId)?.emit('YOUR_ROLE', 'X');
@@ -518,8 +539,87 @@ export class GameManager {
 
     // Broadcast new assignments
     this.io.to(roomId).emit('PLAYER_ASSIGNMENT', { playerX: newPlayerX.socketId, playerO: newPlayerO.socketId });
+    this.clearTurnTimer(room);
+    this.startTurnTimer(room);
 
     // Update Lobby List (status changed back to Playing)
+    this.broadcastRoomList();
+}
+
+
+private startTurnTimer(room: GameRoom) {
+    this.clearTurnTimer(room); // Ensure no duplicate timers
+    if (!room.turnDuration || room.gameState.gameStatus !== 'InProgress') {
+        return; // No timer set for this room or game ended
+    }
+
+    const durationMs = room.turnDuration * 1000;
+    const currentPlayer = room.gameState.currentPlayer;
+    const playerInfo = room.players.find(p => p?.role === currentPlayer);
+
+    if (!playerInfo) {
+         console.error(`[${room.roomId}] Cannot start timer: Current player ${currentPlayer} not found.`);
+         return;
+    }
+
+    console.log(`[${room.roomId}] Starting ${room.turnDuration}s timer for Player ${currentPlayer} (${playerInfo.socketId})`);
+
+    // TODO: Implement emitting timer updates (e.g., every second) if desired
+
+    room.activeTurnTimer = setTimeout(() => {
+        this.handleTurnTimeout(room.roomId, currentPlayer);
+    }, durationMs);
+
+    // TODO: Emit initial timer state to clients
+    // this.io.to(room.roomId).emit('TURN_TIMER_UPDATE', {
+    //     player: currentPlayer,
+    //     timeLeft: room.turnDuration,
+    //     maxDuration: room.turnDuration
+    // });
+}
+
+private clearTurnTimer(room: GameRoom) {
+    if (room.activeTurnTimer) {
+        console.log(`[${room.roomId}] Clearing active timer.`);
+        clearTimeout(room.activeTurnTimer);
+        room.activeTurnTimer = null;
+        // TODO: Emit timer cleared/null state to clients
+        // this.io.to(room.roomId).emit('TURN_TIMER_UPDATE', null);
+    }
+}
+
+private handleTurnTimeout(roomId: string, timedOutPlayer: Player) {
+    const room = this.gameRooms.get(roomId);
+    if (!room || room.gameState.gameStatus !== 'InProgress' || room.gameState.currentPlayer !== timedOutPlayer) {
+         console.log(`[${roomId}] Timeout ignored: Room not found, game over, or player already moved.`);
+         return; // Ignore if game ended or player changed before timeout fired
+    }
+
+    console.log(`[${roomId}] Player ${timedOutPlayer} timed out!`);
+    room.activeTurnTimer = null; // Clear timer reference
+
+    // Determine winner
+    const winner = timedOutPlayer === 'X' ? 'O' : 'X';
+
+    // Update game state (make a copy first)
+    let nextGameState = structuredClone(room.gameState);
+    nextGameState.gameStatus = winner;
+    nextGameState.activeBoardIndex = null; // Game over
+    // Optionally add a message or flag indicating timeout? For now, just set winner.
+
+    // Update room state
+    room.gameState = nextGameState;
+    room.status = 'Finished';
+
+    // Notify clients
+    this.io.to(roomId).emit('GAME_STATE_UPDATE', room.gameState);
+    // Send a specific timeout message?
+    this.io.to(roomId).emit('ERROR_MESSAGE', `Player ${timedOutPlayer} ran out of time. Player ${winner} wins!`);
+    // Clear any timer display on clients
+    // this.io.to(roomId).emit('TURN_TIMER_UPDATE', null);
+
+
+    // Update lobby list
     this.broadcastRoomList();
 }
 
@@ -528,11 +628,16 @@ export class GameManager {
         return Math.random().toString(36).substring(2, 9);
     }
     private sanitizeRoomName(name?: string): string | undefined {
+        // Allow empty strings to pass through, handle default name in createRoom
         return name?.trim().slice(0, 30);
     }
     private cleanupRoom(roomId: string): void {
         const room = this.gameRooms.get(roomId);
         if (!room) return;
+
+        // --- Clear timer before cleaning up ---
+        this.clearTurnTimer(room);
+
         console.log(`Cleaning up room data for: ${roomId}`);
         // Make players and spectators leave the socket.io room first
         const playerIds = room.players
@@ -546,5 +651,10 @@ export class GameManager {
         this.gameRooms.delete(roomId); // Delete room state
         console.log(`Room ${roomId} removed from active games.`);
         this.broadcastRoomList(); // Update list after removal
+    }
+
+    // Helper to send error message to a specific socket
+    private sendErrorToSocket(socketId: string, message: string) {
+        this.io.sockets.sockets.get(socketId)?.emit('ERROR_MESSAGE', message);
     }
 }
