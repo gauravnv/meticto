@@ -1,11 +1,10 @@
-// client/src/components/Lobby.tsx
 import React, { useState } from 'react';
-// Ensure RoomInfo includes the fields added on the server (spectatorCount, status)
 import { RoomInfo } from '../types';
 
 interface LobbyProps {
     roomList: RoomInfo[]; // Expecting the updated RoomInfo structure
-    onCreateRoom: (roomName?: string) => void;
+    // Update onCreateRoom signature to accept duration
+    onCreateRoom: (options: { roomName?: string; duration?: number }) => void;
     onJoinRoom: (roomId: string) => void; // Used for both joining and spectating
     isConnecting: boolean;
     serverError: string | null;
@@ -19,11 +18,18 @@ const Lobby: React.FC<LobbyProps> = ({
     serverError,
 }) => {
     const [newRoomName, setNewRoomName] = useState('');
+    // Store duration in seconds (0 for None)
+    const [timerDuration, setTimerDuration] = useState<number>(0);
 
     const handleCreateClick = () => {
         // Trim whitespace, send undefined if empty so server uses default name
-        onCreateRoom(newRoomName.trim() || undefined);
+        // Pass options object including duration
+        onCreateRoom({
+            roomName: newRoomName.trim() || undefined,
+            duration: timerDuration === 0 ? undefined : timerDuration // Send undefined if 0 (None)
+        });
         setNewRoomName(''); // Clear input
+        setTimerDuration(0); // Reset dropdown
     };
 
     // Helper function to get Tailwind color class based on room status
@@ -39,6 +45,14 @@ const Lobby: React.FC<LobbyProps> = ({
                 return 'text-gray-400'; // Fallback
         }
     };
+
+    // Timer options mapping
+    const timerOptions = [
+        { value: 0, label: 'None' },
+        { value: 15, label: '15 seconds' },
+        { value: 30, label: '30 seconds' },
+        { value: 60, label: '60 seconds' },
+    ];
 
     return (
         <div className="flex flex-col items-center justify-center min-h-screen p-6 text-white bg-gradient-to-br from-gray-800 via-gray-900 to-gray-800">
@@ -57,7 +71,8 @@ const Lobby: React.FC<LobbyProps> = ({
                 <h2 className="mb-3 text-2xl font-semibold text-indigo-300">
                     Create New Room
                 </h2>
-                <div className="flex flex-col gap-2 sm:flex-row">
+                {/* Input Row */}
+                <div className="flex flex-col gap-3 sm:flex-row sm:gap-2">
                     <input
                         type="text"
                         value={newRoomName}
@@ -67,6 +82,26 @@ const Lobby: React.FC<LobbyProps> = ({
                         className="flex-grow px-3 py-2 text-white placeholder-gray-400 bg-gray-700 border border-gray-600 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500"
                         disabled={isConnecting}
                     />
+                     {/* Timer Selection Dropdown */}
+                     <div className="flex-shrink-0"> {/* Prevent dropdown from shrinking too much */}
+                        <label htmlFor="timer-select" className="sr-only">Turn Timer</label> {/* Screen reader label */}
+                        <select
+                            id="timer-select"
+                            value={timerDuration}
+                            onChange={(e) => setTimerDuration(Number(e.target.value))}
+                            className="w-full px-3 py-2 text-white bg-gray-700 border border-gray-600 rounded sm:w-auto focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                            disabled={isConnecting}
+                        >
+                            {timerOptions.map(option => (
+                                <option key={option.value} value={option.value}>
+                                    {option.label}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+                </div>
+                 {/* Create Button (Moved below inputs) */}
+                 <div className="mt-3 text-right">
                     <button
                         onClick={handleCreateClick}
                         className="px-5 py-2 font-semibold text-white transition duration-150 ease-in-out bg-indigo-600 rounded shadow-md hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
