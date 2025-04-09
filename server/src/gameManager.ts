@@ -168,11 +168,19 @@ export class GameManager {
              socket.join(roomId);
              socket.emit('YOUR_ROLE', 'O');
              socket.emit('ROOM_JOINED', { roomId, initialState: room.gameState, roomName: room.roomName });
+
              const playerX = room.players[0];
-             if (playerX) { this.io.sockets.sockets.get(playerX.socketId)?.emit('GAME_START', { opponentId: socket.id }); }
+             if (playerX) {
+                 // Notify Player X game is starting
+                 this.io.sockets.sockets.get(playerX.socketId)?.emit('GAME_START', { opponentId: socket.id });
+             }
+
              this.broadcastRoomList(); // Update list (room no longer waiting)
              this.io.to(roomId).emit('PLAYER_ASSIGNMENT', { playerX: room.players[0]?.socketId, playerO: room.players[1]?.socketId });
              this.io.to(roomId).emit('SPECTATOR_COUNT_UPDATE', { count: room.spectators.size });
+
+             // *** Start the timer for the first turn (Player X) ***
+             this.startTurnTimer(room);
         } else if (room.status === "Playing" || room.status === "Finished") {
             // --- Join as Spectator ---
             if (room.players.some(p => p?.socketId === socket.id)) {
@@ -203,19 +211,18 @@ export class GameManager {
             this.socketIdToRoomId.delete(socketId);
             return;
         }
-        console.log(`Socket ${socketId} leaving room ${roomId}.`);
         socket.leave(roomId); // *** Leave socket.io room ***
-        this.socketIdToRoomId.delete(socketId);
+        this.socketIdToRoomId.delete(socketId); // Remove mapping *after* potential cleanup
+
         const playerIndex = room.players.findIndex((p) => p?.socketId === socketId);
         if (playerIndex !== -1) {
+            // Player leaving - triggers cleanup which includes clearing timer
             this.handlePlayerDisconnectCleanup(socket, room, playerIndex);
         } else if (room.spectators.delete(socketId)) {
-            console.log(`Spectator ${socketId} left room ${roomId}.`);
-            this.io
-                .to(roomId)
-                .emit("SPECTATOR_COUNT_UPDATE", { count: room.spectators.size });
+            // Spectator leaving
+            this.io.to(roomId).emit("SPECTATOR_COUNT_UPDATE", { count: room.spectators.size });
+            // No need to broadcast room list just for spectator leaving
         }
-        this.broadcastRoomList();
     }
 
     // --- Connection & Disconnection ---
@@ -227,7 +234,6 @@ export class GameManager {
 
     handleDisconnect(socket: Socket) {
         const socketId = socket.id;
-        console.log(`User disconnected: ${socketId}`);
         const roomId = this.socketIdToRoomId.get(socketId);
         if (roomId) {
             const room = this.gameRooms.get(roomId);
@@ -236,28 +242,28 @@ export class GameManager {
                     (p) => p?.socketId === socketId
                 );
                 if (playerIndex !== -1) {
+                    // Player disconnected - triggers cleanup which includes clearing timer
                     this.handlePlayerDisconnectCleanup(socket, room, playerIndex);
                 } else {
+                    // Spectator disconnected
                     if (room.spectators.delete(socketId)) {
                         console.log(
                             `Spectator ${socketId} removed from room ${roomId} on disconnect.`
                         );
-                        this.io
-                            .to(roomId)
-                            .emit("SPECTATOR_COUNT_UPDATE", { count: room.spectators.size });
+                        this.io.to(roomId).emit("SPECTATOR_COUNT_UPDATE", { count: room.spectators.size });
                     }
-                    socket.leave(roomId); // Should be automatic on disconnect, but doesn't hurt
+                    // No need to leave room, socket is already disconnected
                 }
             } else {
                 console.log(
                     `Disconnect: Room ${roomId} not found for socket ${socketId}.`
                 );
             }
+             // Remove mapping regardless of role after handling
+             this.socketIdToRoomId.delete(socketId);
         } else {
             console.log(`Socket ${socketId} disconnected without being in a room.`);
         }
-        this.socketIdToRoomId.delete(socketId);
-        this.broadcastRoomList();
     }
 
     private handlePlayerDisconnectCleanup(
@@ -265,39 +271,41 @@ export class GameManager {
         room: GameRoom,
         playerIndex: number
     ) {
-        const socketId = socket.id;
+        const socketId = room.players[playerIndex]?.socketId; // Get ID from room data
         const roomId = room.roomId;
         console.log(
             `Player ${room.players[playerIndex]?.role} (${socketId}) left/disconnected room ${roomId}. Cleaning up.`
         );
+
+        // --- Clear timer FIRST ---
+        this.clearTurnTimer(room);
+
         const opponentIndex = playerIndex === 0 ? 1 : 0;
         const opponent = room.players[opponentIndex];
         if (opponent) {
             const opponentSocket = this.io.sockets.sockets.get(opponent.socketId);
             if (opponentSocket) {
-                console.log(`Notifying and potentially disconnecting opponent ${opponent.socketId} in room ${roomId}.`);
+                console.log(`Notifying opponent ${opponent.socketId} in room ${roomId}.`);
+                // Use the specific event client expects
                 opponentSocket.emit('OPPONENT_DISCONNECTED', 'Your opponent left the game.');
+                // Optionally force opponent back to lobby? For now, let client handle it.
             }
         }
 
+        // Notify spectators
         if (room.spectators.size > 0) {
             console.log(`[${roomId}] Notifying ${room.spectators.size} spectators game ended due to player disconnect.`);
             room.spectators.forEach(spectatorId => {
                 const spectatorSocket = this.io.sockets.sockets.get(spectatorId);
-                if (spectatorSocket) {
-                    // Send a specific event or a generic error/end message
-                    spectatorSocket.emit('GAME_ENDED_BY_DISCONNECT', { roomId });
-                    // Make spectator leave the socket.io room (will also happen in cleanupRoom, but belt-and-suspenders)
-                    spectatorSocket.leave(roomId);
-                    // Optionally force disconnect spectator? For now, let client handle returning to lobby on event.
-                    // spectatorSocket.disconnect(true);
-                }
-                // Mapping will be removed in cleanupRoom
+                // Send event client expects
+                spectatorSocket?.emit('GAME_ENDED_BY_DISCONNECT', { roomId });
+                // Let client handle leaving the room view / returning to lobby
             });
         }
 
-        this.cleanupRoom(roomId); // Removes room state, mappings, notifies list
-        console.log(`Room ${roomId} fully cleaned up due to player disconnect/leave.`);
+        // Cleanup the room state entirely (removes mappings, deletes room, broadcasts list)
+        this.cleanupRoom(roomId);
+        console.log(`Room ${roomId} fully cleaned up after player disconnect/leave.`);
     }
 
     // --- Game Actions ---
@@ -426,7 +434,6 @@ export class GameManager {
         }
 
         // --- Update the room's actual game state with the modified copy ---
-        console.log(`[${roomId}] Move successful. Updating room state.`);
         room.gameState = nextGameState; // Assign the updated copy back
 
         // Update room status if game ended
@@ -437,13 +444,15 @@ export class GameManager {
         }
 
         // --- Broadcast the NEWLY ASSIGNED state ---
-        console.log(`[${roomId}] Broadcasting updated game state.`);
         this.io.to(roomId!).emit("GAME_STATE_UPDATE", room.gameState);
 
         // --- Start timer for the NEXT player (if applicable) ---
         if (room.gameState.gameStatus === 'InProgress') {
             this.startTurnTimer(room); // Start timer for the player whose turn it now is
-        }
+        } else {
+            // Ensure timer display is cleared if game ended on this move
+            this.io.to(roomId!).emit('TURN_TIMER_UPDATE', null);
+       }
     }
 
     handleRematchRequest(socketId: string) {
@@ -477,6 +486,7 @@ export class GameManager {
         // Check if BOTH players have now requested a rematch
         if (room.rematchRequested[0] && room.rematchRequested[1]) {
             console.log(`[${roomId}] Both players want a rematch! Starting new game.`);
+            this.clearTurnTimer(room); // Clear any active timer
             this.startRematch(room); // Call separate function to handle reset/swap
         } else {
              console.log(`[${roomId}] Waiting for opponent's rematch request.`);
@@ -548,34 +558,46 @@ export class GameManager {
 
 
 private startTurnTimer(room: GameRoom) {
-    this.clearTurnTimer(room); // Ensure no duplicate timers
+    this.clearTurnTimer(room); // Ensure no duplicate timers running
+
     if (!room.turnDuration || room.gameState.gameStatus !== 'InProgress') {
-        return; // No timer set for this room or game ended
+        console.log(`[${room.roomId}] Timer not starting (No duration or game not in progress).`);
+        // Ensure client timer display is cleared if game ended or no timer set
+        this.io.to(room.roomId).emit('TURN_TIMER_UPDATE', null);
+        return;
     }
 
-    const durationMs = room.turnDuration * 1000;
+    const durationSec = room.turnDuration;
+    const durationMs = durationSec * 1000;
     const currentPlayer = room.gameState.currentPlayer;
     const playerInfo = room.players.find(p => p?.role === currentPlayer);
 
     if (!playerInfo) {
-         console.error(`[${room.roomId}] Cannot start timer: Current player ${currentPlayer} not found.`);
+         console.error(`[${room.roomId}] Cannot start timer: Current player ${currentPlayer} info not found in room.`);
          return;
     }
 
-    console.log(`[${room.roomId}] Starting ${room.turnDuration}s timer for Player ${currentPlayer} (${playerInfo.socketId})`);
+    console.log(`[${room.roomId}] Starting ${durationSec}s timer for Player ${currentPlayer} (${playerInfo.socketId})`);
 
-    // TODO: Implement emitting timer updates (e.g., every second) if desired
+    // Emit initial timer state immediately
+    const timerData = {
+        player: currentPlayer,
+        timeLeft: durationSec, // Start with full duration
+        maxDuration: durationSec
+    };
+    console.log(`[${room.roomId}] Emitting initial TURN_TIMER_UPDATE:`, timerData);
+    this.io.to(room.roomId).emit('TURN_TIMER_UPDATE', timerData);
 
+    // Set the timeout for expiration
     room.activeTurnTimer = setTimeout(() => {
-        this.handleTurnTimeout(room.roomId, currentPlayer);
+        // Check inside timeout if the player *still* matches, as a move might have occurred
+        // just before the timeout fired.
+        if (room.gameState.currentPlayer === currentPlayer && room.gameState.gameStatus === 'InProgress') {
+             this.handleTurnTimeout(room.roomId, currentPlayer);
+        } else {
+             console.log(`[${room.roomId}] Timeout for ${currentPlayer} ignored, game state changed before execution.`);
+        }
     }, durationMs);
-
-    // TODO: Emit initial timer state to clients
-    // this.io.to(room.roomId).emit('TURN_TIMER_UPDATE', {
-    //     player: currentPlayer,
-    //     timeLeft: room.turnDuration,
-    //     maxDuration: room.turnDuration
-    // });
 }
 
 private clearTurnTimer(room: GameRoom) {
@@ -583,43 +605,51 @@ private clearTurnTimer(room: GameRoom) {
         console.log(`[${room.roomId}] Clearing active timer.`);
         clearTimeout(room.activeTurnTimer);
         room.activeTurnTimer = null;
-        // TODO: Emit timer cleared/null state to clients
-        // this.io.to(room.roomId).emit('TURN_TIMER_UPDATE', null);
+        console.log(`[${room.roomId}] Emitting null TURN_TIMER_UPDATE.`);
+        this.io.to(room.roomId).emit('TURN_TIMER_UPDATE', null);
     }
 }
 
 private handleTurnTimeout(roomId: string, timedOutPlayer: Player) {
     const room = this.gameRooms.get(roomId);
+    // Re-check conditions as state might have changed between setTimeout schedule and execution
     if (!room || room.gameState.gameStatus !== 'InProgress' || room.gameState.currentPlayer !== timedOutPlayer) {
-         console.log(`[${roomId}] Timeout ignored: Room not found, game over, or player already moved.`);
-         return; // Ignore if game ended or player changed before timeout fired
+         console.log(`[${roomId}] Timeout handling aborted: Room/Game state changed before timeout execution for ${timedOutPlayer}.`);
+         return; // Ignore if game ended or player changed just before timeout fired
     }
 
-    console.log(`[${roomId}] Player ${timedOutPlayer} timed out!`);
-    room.activeTurnTimer = null; // Clear timer reference
+    console.log(`[${roomId}] Player ${timedOutPlayer} timed out! Processing forfeit.`);
+    room.activeTurnTimer = null; // Ensure timer reference is cleared
 
     // Determine winner
     const winner = timedOutPlayer === 'X' ? 'O' : 'X';
+    console.log(`[${roomId}] Winner by timeout: Player ${winner}.`);
 
-    // Update game state (make a copy first)
+    // Update game state (make a copy first for safety, though modifying directly might be okay here)
     let nextGameState = structuredClone(room.gameState);
     nextGameState.gameStatus = winner;
     nextGameState.activeBoardIndex = null; // Game over
-    // Optionally add a message or flag indicating timeout? For now, just set winner.
+    nextGameState.largeWinningLine = null; // No winning line for timeout
 
     // Update room state
     room.gameState = nextGameState;
     room.status = 'Finished';
 
     // Notify clients
+    console.log(`[${roomId}] Broadcasting final game state after timeout.`);
     this.io.to(roomId).emit('GAME_STATE_UPDATE', room.gameState);
-    // Send a specific timeout message?
-    this.io.to(roomId).emit('ERROR_MESSAGE', `Player ${timedOutPlayer} ran out of time. Player ${winner} wins!`);
-    // Clear any timer display on clients
-    // this.io.to(roomId).emit('TURN_TIMER_UPDATE', null);
 
+    // Send a specific timeout message
+    const timeoutMessage = `Player ${timedOutPlayer} ran out of time. Player ${winner} wins!`;
+    console.log(`[${roomId}] Emitting timeout message: "${timeoutMessage}"`);
+    this.io.to(roomId).emit('ERROR_MESSAGE', timeoutMessage); // Use existing error channel or create a dedicated one
 
-    // Update lobby list
+    // Clear any timer display on clients (should have been done by clearTurnTimer, but belt-and-suspenders)
+    console.log(`[${roomId}] Emitting null TURN_TIMER_UPDATE after timeout.`);
+    this.io.to(roomId).emit('TURN_TIMER_UPDATE', null);
+
+    // Update lobby list as room is now Finished
+    console.log(`[${roomId}] Broadcasting room list update after timeout.`);
     this.broadcastRoomList();
 }
 
