@@ -16,6 +16,7 @@ const Game: React.FC = () => {
         serverError,
         rematchOffered,
         rematchRequested,
+        currentTimer,
         leaveRoom, // Get action from context
         attemptMove, // Get action from context
         requestRematch, // Get action from context
@@ -23,6 +24,7 @@ const Game: React.FC = () => {
 
     // Local UI State remains
     const [isAnimatingTurn, setIsAnimatingTurn] = useState(false);
+    const [displayTimeLeft, setDisplayTimeLeft] = useState<number | null>(null);
 
     // Animation Effect remains (depends on gameState from context)
     useEffect(() => {
@@ -31,6 +33,39 @@ const Game: React.FC = () => {
         const timer = setTimeout(() => setIsAnimatingTurn(false), 600);
         return () => clearTimeout(timer);
     }, [gameState?.currentPlayer, gameState?.gameStatus]);
+
+     // --- Countdown Timer Effect ---
+     useEffect(() => {
+        let intervalId: number | null = null;
+
+        if (currentTimer) {
+            // Set initial display time from server data
+            setDisplayTimeLeft(currentTimer.timeLeft);
+
+            // Start interval to decrement the display time
+            intervalId = setInterval(() => {
+                setDisplayTimeLeft(prevTime => {
+                    if (prevTime === null || prevTime <= 0) {
+                        if(intervalId) clearInterval(intervalId); // Stop interval if time runs out client-side
+                        return 0;
+                    }
+                    return prevTime - 1;
+                });
+            }, 1000); // Update every second
+
+        } else {
+            // No timer active, clear display
+            setDisplayTimeLeft(null);
+        }
+
+        // Cleanup function: Clear interval when component unmounts or currentTimer changes
+        return () => {
+            if (intervalId) {
+                clearInterval(intervalId);
+            }
+        };
+    }, [currentTimer]); // Re-run effect when currentTimer object changes
+
 
     // --- Click Handlers (Call context actions) ---
     const handleCellClick = (largeBoardIdx: number, smallBoardIdx: number) => {
@@ -145,6 +180,25 @@ const Game: React.FC = () => {
 
         {/* Game Status / Turn Indicator */}
         <div className="h-8 mb-4 text-xl text-center sm:text-2xl">{statusText}</div>
+
+        {/* --- Timer Display --- */}
+        <div className="h-6 mb-3 text-center"> {/* Added height and margin */}
+            {displayTimeLeft !== null && currentTimer && (
+                <p className={`text-lg font-medium ${
+                    // Optional: Change color when time is low
+                    displayTimeLeft <= 10 ? 'text-red-400 animate-pulse' : 'text-yellow-300'
+                }`}>
+                    {/* Indicate whose timer it is */}
+                    {currentTimer.player === playerRole ? 'Your Time:' : `Player ${currentTimer.player}'s Time:`}
+                    {' '} {/* Space */}
+                    {/* Display remaining seconds */}
+                    {displayTimeLeft}s
+                </p>
+            )}
+             {/* Show placeholder if no timer active but game is playing */}
+             {displayTimeLeft === null && gameState?.gameStatus === 'InProgress' && <p className="text-sm text-gray-500">(No turn timer)</p>}
+        </div>
+        {/* --- End Timer Display --- */}
 
         {/* Display Mid-Game Server Errors */}
         {serverError && !opponentDisconnected && <p className="absolute px-2 mb-2 text-xs text-center text-red-500 top-14 sm:top-auto sm:relative sm:text-sm">Error: {serverError}</p>}
