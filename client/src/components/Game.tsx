@@ -1,6 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import LargeBoard from './LargeBoard';
 import { useSocketContext } from '../context/SocketContext';
+
+function usePrevious<T>(value: T): T | undefined {
+    const ref = useRef<T | undefined>(undefined);
+    useEffect(() => {
+      ref.current = value;
+    });
+    return ref.current;
+  }
 
 const Game: React.FC = () => {
     const {
@@ -23,6 +31,10 @@ const Game: React.FC = () => {
 
     // Local state for countdown display
     const [displayTimeLeft, setDisplayTimeLeft] = useState<number | null>(null);
+    // Get previous player state to detect change
+    const prevPlayer = usePrevious(gameState?.currentPlayer);
+    // Ref to store the Audio object to prevent creating it unnecessarily
+    const turnAudioRef = useRef<HTMLAudioElement | null>(null);
 
     // --- Countdown Timer Effect ---
     useEffect(() => {
@@ -50,6 +62,33 @@ const Game: React.FC = () => {
             }
         };
     }, [currentTimer]);
+
+     // --- Audio Cue Effect ---
+     useEffect(() => {
+        if (
+            gameState &&
+            gameState.gameStatus === 'InProgress' &&
+            playerRole &&
+            prevPlayer !== undefined &&
+            prevPlayer !== gameState.currentPlayer &&
+            gameState.currentPlayer === playerRole
+        ) {
+            try {
+                // Initialize Audio object on first use or if needed
+                if (!turnAudioRef.current) {
+                    turnAudioRef.current = new Audio('/notify.wav');
+                }
+                // Play the sound
+                turnAudioRef.current.currentTime = 0;
+                turnAudioRef.current.play().catch(error => {
+                    // Autoplay restrictions might cause an error
+                    console.warn("Audio play failed (possibly autoplay restriction):", error);
+                });
+            } catch (error) {
+                console.error("Failed to load or play audio:", error);
+            }
+        }
+    }, [gameState?.currentPlayer, prevPlayer, playerRole, gameState?.gameStatus]);
 
 
     // --- Click Handlers ---
