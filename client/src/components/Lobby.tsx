@@ -7,7 +7,6 @@ interface LobbyProps {
     onCreateRoom: (options: { roomName?: string; duration?: number }) => void;
     onJoinRoom: (roomId: string) => void; // Used for both joining and spectating
     isConnecting: boolean;
-    serverError: string | null;
 }
 
 const Lobby: React.FC<LobbyProps> = ({
@@ -15,7 +14,6 @@ const Lobby: React.FC<LobbyProps> = ({
     onCreateRoom,
     onJoinRoom, // Renamed for clarity, handles joining Waiting or Spectating others
     isConnecting,
-    serverError,
 }) => {
     const [newRoomName, setNewRoomName] = useState('');
     // Store duration in seconds (0 for None)
@@ -61,9 +59,6 @@ const Lobby: React.FC<LobbyProps> = ({
             {/* Connection/Error Status */}
             {isConnecting && (
                 <p className="mb-4 text-yellow-400 animate-pulse">Connecting...</p>
-            )}
-            {serverError && (
-                <p className="mb-4 font-semibold text-red-500">Error: {serverError}</p>
             )}
 
             {/* Create Room Section */}

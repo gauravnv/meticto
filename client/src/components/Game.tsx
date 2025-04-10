@@ -20,7 +20,6 @@ const Game: React.FC = () => {
         roomId,
         roomName,
         spectatorCount,
-        serverError,
         rematchOffered,
         rematchRequested,
         currentTimer,
@@ -94,7 +93,6 @@ const Game: React.FC = () => {
     // --- Click Handlers ---
      const handleCellClick = (largeBoardIdx: number, smallBoardIdx: number) => {
          if (!gameState || gameState.gameStatus !== 'InProgress' || playerRole !== gameState.currentPlayer || !opponentJoined) {
-              console.log("Game.tsx: Click ignored - Conditions not met (game state, turn, opponent joined).");
               return;
          }
          attemptMove(largeBoardIdx, smallBoardIdx);
@@ -116,12 +114,12 @@ const Game: React.FC = () => {
         );
      }
      // 2. Connection/Server Error State
-     if ((!isConnected || serverError) && roomId && !opponentDisconnected) {
+     if (!isConnected && roomId && !opponentDisconnected) {
           return (
              <div className="flex flex-col items-center justify-center min-h-screen p-4 text-white bg-gradient-to-br from-gray-900 via-indigo-950 to-gray-900">
                  <h1 className="mb-4 text-4xl font-bold">Meticto</h1>
                  <div className="mb-4 text-2xl text-red-500">Error</div>
-                 <div className="mb-6 text-xl">{serverError || "Connection lost."}</div>
+                 <div className="mb-6 text-xl">{"Connection lost."}</div>
                  <button onClick={handleLeaveClick} className="px-4 py-2 mt-4 bg-gray-600 rounded hover:bg-gray-700">Back to Lobby</button>
              </div>
           );
@@ -183,10 +181,7 @@ const Game: React.FC = () => {
             )}
              {displayTimeLeft === null && gameState?.gameStatus === 'InProgress' && <p className="text-sm text-gray-500">(No turn timer)</p>}
         </div>
-
-        {/* Display Mid-Game Server Errors */}
-        {serverError && !opponentDisconnected && <p className="absolute px-2 mb-2 text-xs text-center text-red-500 top-14 sm:top-auto sm:relative sm:text-sm">Error: {serverError}</p>}
-
+        
         {/* Game Board Area */}
         <div className="w-full max-w-lg mt-2">
           {/* Ensure all necessary props are passed */}

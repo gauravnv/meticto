@@ -88,8 +88,6 @@ export class GameManager {
                  console.log(`    ... Skipping room ${roomId} due to status ${room.status}.`); // Log if skipped
             }
         });
-
-        console.log("Broadcasting room list update:", roomList);
         const eventName = "ROOM_LIST_UPDATE";
         if (targetSocket) {
             targetSocket.emit(eventName, roomList);
@@ -132,8 +130,6 @@ export class GameManager {
         this.socketIdToRoomId.set(socketId, roomId);
         socket.join(roomId); // *** Make sure socket joins the room ***
 
-        console.log(`[${roomId}] Room "${newRoom.roomName}" created. Turn duration: ${validatedDuration ?? 'None'} seconds.`);
-
         socket.emit("YOUR_ROLE", "X");
         socket.emit("ROOM_JOINED", {
             roomId,
@@ -163,7 +159,6 @@ export class GameManager {
              const playerOInfo: PlayerInfo = { socketId: socket.id, role: 'O' };
              room.players[1] = playerOInfo;
              room.status = 'Playing';
-             console.log(`[${roomId}] Room status updated to: ${room.status}`);
              this.socketIdToRoomId.set(socket.id, roomId);
              socket.join(roomId);
              socket.emit('YOUR_ROLE', 'O');
@@ -228,7 +223,6 @@ export class GameManager {
     // --- Connection & Disconnection ---
     handleNewConnection(socket: Socket) {
         const socketId = socket.id;
-        console.log(`User connected: ${socketId}`);
         this.broadcastRoomList(socket); // Send available rooms
     }
 
@@ -247,9 +241,6 @@ export class GameManager {
                 } else {
                     // Spectator disconnected
                     if (room.spectators.delete(socketId)) {
-                        console.log(
-                            `Spectator ${socketId} removed from room ${roomId} on disconnect.`
-                        );
                         this.io.to(roomId).emit("SPECTATOR_COUNT_UPDATE", { count: room.spectators.size });
                     }
                     // No need to leave room, socket is already disconnected
@@ -273,9 +264,6 @@ export class GameManager {
     ) {
         const socketId = room.players[playerIndex]?.socketId; // Get ID from room data
         const roomId = room.roomId;
-        console.log(
-            `Player ${room.players[playerIndex]?.role} (${socketId}) left/disconnected room ${roomId}. Cleaning up.`
-        );
 
         // --- Clear timer FIRST ---
         this.clearTurnTimer(room);
@@ -285,7 +273,6 @@ export class GameManager {
         if (opponent) {
             const opponentSocket = this.io.sockets.sockets.get(opponent.socketId);
             if (opponentSocket) {
-                console.log(`Notifying opponent ${opponent.socketId} in room ${roomId}.`);
                 // Use the specific event client expects
                 opponentSocket.emit('OPPONENT_DISCONNECTED', 'Your opponent left the game.');
                 // Optionally force opponent back to lobby? For now, let client handle it.
@@ -322,9 +309,6 @@ export class GameManager {
             return;
         }
         if (room.status !== "Playing") {
-            console.log(
-                `[${roomId}] Move attempt ignored: Room status is ${room.status}.`
-            );
             return;
         }
 
@@ -368,7 +352,6 @@ export class GameManager {
             return;
         }
         if (isSmallBoardFinished(currentLargeBoardCell.status)) {
-            console.log(`[${roomId}] Validation Failed: Board ${largeBoardIdx} finished.`);
             this.sendErrorToSocket(socketId, `Board ${largeBoardIdx + 1} is already finished.`);
             return;
         }
@@ -561,7 +544,6 @@ private startTurnTimer(room: GameRoom) {
     this.clearTurnTimer(room); // Ensure no duplicate timers running
 
     if (!room.turnDuration || room.gameState.gameStatus !== 'InProgress') {
-        console.log(`[${room.roomId}] Timer not starting (No duration or game not in progress).`);
         // Ensure client timer display is cleared if game ended or no timer set
         this.io.to(room.roomId).emit('TURN_TIMER_UPDATE', null);
         return;
@@ -679,7 +661,6 @@ private handleTurnTimeout(roomId: string, timedOutPlayer: Player) {
             this.socketIdToRoomId.delete(socketId); // Remove mapping
         });
         this.gameRooms.delete(roomId); // Delete room state
-        console.log(`Room ${roomId} removed from active games.`);
         this.broadcastRoomList(); // Update list after removal
     }
 

@@ -12,15 +12,11 @@ const renderClientUrlFromEnv = process.env.RENDER_CLIENT_URL;
 
 let dynamicAllowedOrigins = [clientUrlFromEnv];
 if (renderClientUrlFromEnv) {
-  console.log(`RENDER_CLIENT_URL found: ${renderClientUrlFromEnv}`);
   // Ensure no duplicates if CLIENT_URL was also set to the render URL
   if (!dynamicAllowedOrigins.includes(renderClientUrlFromEnv)) {
     dynamicAllowedOrigins.push(renderClientUrlFromEnv);
   }
-} else {
-  console.log("RENDER_CLIENT_URL not found in environment.");
 }
-console.log("Final allowed CORS origins:", dynamicAllowedOrigins);
 
 const corsOptions: cors.CorsOptions = {
   origin: (origin, callback) => {

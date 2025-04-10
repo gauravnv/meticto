@@ -46,9 +46,6 @@ const LargeBoard: React.FC<LargeBoardProps> = ({
         const rectElement = rectRef.current;
         if (!rectElement) return; // Exit if ref not available yet
 
-        // Log state *at the time the effect runs*
-        console.log(`LargeBoard Effect Run: Prev=${prevPlayer}, Curr=${currentPlayer}, Role=${myRole}, Status=${gameStatus}`);
-
         // --- Trigger Condition ---
         // Check if the game is running, a previous player value exists,
         // the player actually changed, and the *new* current player is this client.
@@ -62,15 +59,12 @@ const LargeBoard: React.FC<LargeBoardProps> = ({
         // Always try to cancel any existing animation *before* deciding whether to start a new one.
         // This simplifies logic and prevents race conditions.
         if (animationRef.current) {
-            console.log("LargeBoard: Cancelling previous animation (if any).");
             animationRef.current.cancel(); // Stop and clear effects
             animationRef.current = null; // Clear the ref immediately after cancelling
         }
 
         // --- Start Animation (if conditions met) ---
         if (shouldAnimate) {
-            console.log(`LargeBoard: Triggering animation for ${currentPlayer}.`);
-
             // --- Reset Element State ---
             // Explicitly set initial animation styles before starting
             rectElement.style.strokeDashoffset = '2000';

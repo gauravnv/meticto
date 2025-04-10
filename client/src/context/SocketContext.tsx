@@ -8,6 +8,7 @@ import React, {
 } from "react";
 import socket from "../services/socketService";
 import { GameState, Player, RoomInfo } from "../types";
+import toast from 'react-hot-toast';
 
 // --- State Definition ---
 interface SocketState {
@@ -53,13 +54,11 @@ type SocketAction =
   | { type: "SET_GAME_STATE"; payload: GameState | null }
   | { type: "SET_PLAYER_ROLE"; payload: Player | null }
   | { type: "SET_ROOM_LIST"; payload: RoomInfo[] }
-  | {
-      type: "SET_ROOM_JOINED";
-      payload: { roomId: string; roomName: string; initialState: GameState };
-    }
+  | {type: "SET_ROOM_JOINED"; payload: { roomId: string; roomName: string; initialState: GameState }; }
   | { type: "SET_GAME_START"; payload?: { initialState?: GameState } } // Signal opponent joined, clear waiting
   | { type: "SET_SPECTATOR_COUNT"; payload: number }
   | { type: "SET_ERROR"; payload: string | null }
+  | { type: 'CLEAR_ERROR' }
   | { type: "OPPONENT_DISCONNECTED" }
   | { type: "RESET_ROOM_STATE" }
   | { type: "GAME_ENDED_BY_DISCONNECT" }
@@ -77,12 +76,9 @@ const socketReducer = (
   state: SocketState,
   action: SocketAction
 ): SocketState => {
-  console.log(
-    "Reducer Action:",
-    action.type,
-    "Payload:",
-    "payload" in action ? action.payload : undefined
-  ); // Log actions
+  if (import.meta.env.DEV) {
+    console.log("Reducer Action:", action.type, "Payload:", 'payload' in action ? action.payload : undefined);
+}
   switch (action.type) {
     case "SET_CONNECTION_STATUS":
       // If disconnecting, reset everything except maybe error
@@ -147,9 +143,7 @@ const socketReducer = (
       };
     case "GAME_ENDED_BY_DISCONNECT": // <-- HANDLE NEW ACTION
       // Similar to opponent disconnect, but maybe different message? Reset state.
-      console.log(
-        "Reducer: Game ended by disconnect (likely player left). Resetting room state."
-      );
+      if (import.meta.env.DEV) console.log("Reducer: Game ended by disconnect. Resetting room state.");
       return {
         ...state, // Keep connection status and room list
         gameState: null,
@@ -215,6 +209,15 @@ interface SocketProviderProps {
 export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
   const [state, dispatch] = useReducer(socketReducer, initialState);
 
+  // --- Effect to Show Toasts for Errors ---
+  useEffect(() => {
+    if (state.serverError) {
+        toast.error(state.serverError);
+        // Clear the error state in the reducer after showing the toast
+        dispatch({ type: 'CLEAR_ERROR' });
+    }
+}, [state.serverError]); // Depend only on serverError
+
   // --- Emitter Functions (Stable references via useCallback) ---
   // These don't dispatch directly but emit to the server
   const connectSocket = useCallback(() => {
@@ -222,7 +225,6 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
   }, []);
   const createRoom = useCallback(
     (options: { roomName?: string; duration?: number }) => {
-      console.log("Provider: Emitting CREATE_ROOM with options:", options);
       socket.emit(
         "CREATE_ROOM",
         options
@@ -231,12 +233,10 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
     []
   );
   const joinRoom = useCallback((roomIdToJoin: string) => {
-    console.log(`Provider: Emitting JOIN_ROOM for ${roomIdToJoin}`);
     socket.emit("JOIN_ROOM", { roomId: roomIdToJoin });
   }, []);
   const leaveRoom = useCallback(() => {
     if (state.roomId) {
-      console.log(`Provider: Emitting LEAVE_ROOM for ${state.roomId}`);
       socket.emit("LEAVE_ROOM");
       dispatch({ type: "RESET_ROOM_STATE" });
     }
@@ -256,8 +256,6 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
 
   // --- Effect for Socket Listeners ---
   useEffect(() => {
-    console.log("Provider Effect: Registering Listeners...");
-
     // Define handlers that dispatch actions
     const handleConnect = () =>
       dispatch({ type: "SET_CONNECTION_STATUS", payload: true });
@@ -282,16 +280,13 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
       dispatch({ type: "SET_ERROR", payload: msg });
     const handleGameEndedByDisconnect = () =>
       dispatch({ type: "GAME_ENDED_BY_DISCONNECT" });
-    const handleOpponentWantsRematch = (data: { requestingPlayer: Player }) => {
-      console.log(`Provider: Opponent ${data.requestingPlayer} wants rematch.`);
+    const handleOpponentWantsRematch = () => {
       dispatch({ type: "OPPONENT_WANTS_REMATCH" });
     };
     const handleWaitingForRematch = () => {
-      console.log("Provider: Waiting for opponent's rematch approval.");
       // Already handled by setting rematchRequested=true locally, could add specific state if needed
     };
     const handleTurnTimerUpdate = (payload: { player: Player; timeLeft: number; maxDuration: number } | null) => {
-        console.log("Provider: Received TURN_TIMER_UPDATE", payload);
         dispatch({ type: 'SET_TURN_TIMER', payload });
    };
 
@@ -314,7 +309,6 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
 
     // Initial connection attempt
     if (!socket.connected) {
-      console.log("Provider Effect: Attempting initial connect...");
       socket.connect();
     } else {
       // Ensure connected state is accurate if already connected when provider mounts
@@ -325,7 +319,6 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
 
     // Cleanup
     return () => {
-      console.log("Provider Effect: Cleaning up listeners...");
       socket.off("connect", handleConnect);
       socket.off("disconnect", handleDisconnect);
       socket.off("connect_error", handleConnectError);

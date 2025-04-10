@@ -8,7 +8,6 @@ function App() {
         isConnected,
         roomId,
         roomList,
-        serverError,
         createRoom,
         joinRoom,
     } = useSocketContext(); // Use context hook
@@ -27,20 +26,19 @@ function App() {
                 onCreateRoom={createRoom} // Pass actions from context
                 onJoinRoom={joinRoom}     // Pass actions from context
                 isConnecting={false}
-                serverError={serverError}
              />
          );
     }
     // 3. Show Connection Error State
     // If explicitly not connected AND there's a server error message.
-    else if (!isConnected && serverError) {
+    else if (!isConnected) {
          content = (
-            <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-gray-900 via-indigo-950 to-gray-900 text-white p-4">
-              <h1 className="text-4xl font-bold mb-4">Meticto</h1>
-              <div className="text-2xl text-red-500 mb-4">Connection Error</div>
-              <div className="text-xl mb-6">{serverError}</div>
+            <div className="flex flex-col items-center justify-center min-h-screen p-4 text-white bg-gradient-to-br from-gray-900 via-indigo-950 to-gray-900">
+              <h1 className="mb-4 text-4xl font-bold">Meticto</h1>
+              <div className="mb-4 text-2xl text-red-500">Connection Error</div>
+              <div className="mb-6 text-xl">Could not connect to the server.</div>
               {/* Simple refresh button to allow user retry */}
-              <button onClick={() => window.location.reload()} className="mt-4 px-4 py-2 bg-blue-600 rounded hover:bg-blue-700">Refresh Page</button>
+              <button onClick={() => window.location.reload()} className="px-4 py-2 mt-4 bg-blue-600 rounded hover:bg-blue-700">Refresh Page</button>
             </div>
          );
     }
@@ -48,14 +46,12 @@ function App() {
     // Covers the initial state before connection is established or first room list is received.
     else {
          content = (
-            <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-gray-900 via-indigo-950 to-gray-900 text-white p-4">
-                <h1 className="text-4xl font-bold mb-4">Meticto</h1>
+            <div className="flex flex-col items-center justify-center min-h-screen p-4 text-white bg-gradient-to-br from-gray-900 via-indigo-950 to-gray-900">
+                <h1 className="mb-4 text-4xl font-bold">Meticto</h1>
                 <div className="text-2xl animate-pulse">
                     {/* Show different text based on state */}
                     {!isConnected ? 'Connecting...' : 'Loading Lobby...'}
                 </div>
-                 {/* Display error overlayed on loading if applicable */}
-                 {serverError && <p className="text-red-500 mt-4">{serverError}</p>}
             </div>
         );
     }
