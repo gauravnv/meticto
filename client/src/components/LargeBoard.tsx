@@ -94,11 +94,9 @@ const LargeBoard: React.FC<LargeBoardProps> = ({
             try {
                 const animation = rectElement.animate(keyframes, timing);
                 animationRef.current = animation; // Store the new animation object
-                console.log("LargeBoard: Animation started.");
 
                 // Set up handlers for when the animation finishes or is cancelled
                 animation.onfinish = () => {
-                    console.log("LargeBoard: Animation finished naturally.");
                     // Ensure opacity is 0, although fill: forwards should handle this
                     rectElement.style.opacity = '0';
                     // Clear the ref if this specific animation finished
@@ -107,7 +105,6 @@ const LargeBoard: React.FC<LargeBoardProps> = ({
                     }
                 };
                 animation.oncancel = () => {
-                     console.log("LargeBoard: Animation cancelled.");
                      // Ensure element is hidden if cancelled
                      rectElement.style.opacity = '0';
                      // Clear the ref if this specific animation was cancelled
@@ -125,7 +122,6 @@ const LargeBoard: React.FC<LargeBoardProps> = ({
             // If we are not starting a new animation, ensure the element is hidden.
             // This handles the initial state and cases where the turn changes away.
             // Since any running animation was cancelled above, we can safely set opacity.
-             console.log("LargeBoard: Condition not met for animation, ensuring rect is hidden.");
              rectElement.style.opacity = '0';
         }
 
@@ -136,7 +132,6 @@ const LargeBoard: React.FC<LargeBoardProps> = ({
             // Get the animation object that was potentially stored by *this run* of the effect
             const animationToCancel = animationRef.current;
             if (animationToCancel && animationToCancel.playState === 'running') {
-                console.log("LargeBoard Effect Cleanup: Cancelling animation on unmount/re-run.");
                 animationToCancel.cancel();
                 // The oncancel handler should clear animationRef.current
             }
@@ -147,8 +142,8 @@ const LargeBoard: React.FC<LargeBoardProps> = ({
 
 
     // Determine color based on the player whose turn it *currently* is
-    const neonColor = currentPlayer === 'X' ? '#60a5fa' : '#f87171';
-    const filterId = `neon-glow-${currentPlayer}`;
+    const neonColor = currentPlayer === 'X' ? '#60a5fa' : '#f87171'; // Blue-400 / Red-400 hex
+    const filterId = `neon-glow-${currentPlayer}`; // Unique filter ID per player
 
     return (
         // Relative container
@@ -169,31 +164,32 @@ const LargeBoard: React.FC<LargeBoardProps> = ({
                         </feMerge>
                     </filter>
                 </defs>
-                {/* Border Rect - Animation controlled by JS */}
+                {/* The Border Rectangle - animated via JS */}
                 <rect
-                    ref={rectRef}
-                    x="1" y="1"
-                    width="98" height="98"
-                    rx="4"
-                    fill="none"
-                    stroke={neonColor}
-                    strokeWidth="1.5"
-                    filter={`url(#${filterId})`}
-                    strokeDashoffset="2000"
-                    strokeDasharray="2000"
-                    style={{ opacity: 0 }} // Start hidden via inline style
+                    ref={rectRef} // Ref for JS animation control
+                    x="1" y="1" // Position within SVG canvas
+                    width="98" height="98" // Size within SVG canvas
+                    rx="2" // Rounded corners (adjust to match Tailwind's rounded-lg visually)
+                    fill="none" // No fill
+                    stroke={neonColor} // Color based on current player
+                    strokeWidth="1.5" // Border thickness
+                    filter={`url(#${filterId})`} // Apply neon glow filter
+                    strokeDashoffset="2000" // Initial visual state (fully dashed)
+                    strokeDasharray="2000" // Large fixed value for dash pattern
+                    style={{ opacity: 1 }} // Start hidden via inline style (animation makes it visible)
                 />
             </svg>
-
-            {/* Original Grid Container */}
+            {/* Original Grid Container - renders under SVG */}
             <div className={`grid grid-cols-3 grid-rows-3 gap-2 p-2 bg-gray-800 rounded-lg border-4 border-gray-700`}>
-                {/* ... mapping logic ... */}
-                 {largeBoardState.map((boardState, index) => {
+                {largeBoardState.map((boardState, index) => {
+                     // Determine if this small board is part of a winning line
                      const isWinningBoard = largeWinningLine?.includes(index) ?? false;
                      let boardWrapperClasses = 'relative transition-all duration-300 ease-out';
+                     // Apply scaling/glow effect to winning boards
                      if (isWinningBoard) {
                          boardWrapperClasses += ' transform scale-105 drop-shadow-[0_0_12px_rgba(250,204,21,0.6)] z-10';
                      }
+                     // Apply grayscale effect if the overall game is a draw
                      if (gameStatus === 'Draw') {
                          boardWrapperClasses += ' filter grayscale brightness-75 ';
                      }
