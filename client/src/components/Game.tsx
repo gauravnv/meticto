@@ -3,6 +3,7 @@ import LargeBoard from './LargeBoard';
 import { useSocketContext } from '../context/SocketContext';
 import { GameState, isSmallBoardFinished } from '../types';
 import { trackEvent } from '../utils/analytics';
+import { useSettings } from '../context/SettingsContext';
 
 function usePrevious<T>(value: T): T | undefined {
   const ref = useRef<T | undefined>(undefined);
@@ -38,6 +39,7 @@ const Game: React.FC = () => {
         attemptMove,
         requestRematch,
     } = useSocketContext();
+    const { isMuted, toggleMute } = useSettings();
 
     // Local state for countdown display
     const [displayTimeLeft, setDisplayTimeLeft] = useState<number | null>(null);
@@ -82,82 +84,55 @@ const Game: React.FC = () => {
 
     // --- Audio Cue Effect ---
     useEffect(() => {
-        // Ensure game is running, we have a role, and the turn just changed to us
         if (
-            gameState &&
-            gameState.gameStatus === 'InProgress' &&
-            playerRole &&
-            prevPlayer !== undefined &&
-            prevPlayer !== gameState.currentPlayer &&
+            !isMuted &&
+            gameState && gameState.gameStatus === 'InProgress' && playerRole &&
+            prevPlayer !== undefined && prevPlayer !== gameState.currentPlayer &&
             gameState.currentPlayer === playerRole
         ) {
-            try {
-                // Initialize Audio object on first use or if needed
-                if (!turnAudioRef.current) {
-                    turnAudioRef.current = new Audio('/notify.wav');
-                }
-                // Play the sound
-                turnAudioRef.current.currentTime = 0; // Reset time allows playing again quickly
-                turnAudioRef.current.play().catch(error => {
-                    console.warn("Audio play failed (possibly autoplay restriction):", error);
-                });
-            } catch (error) {
-                console.error("Failed to load or play audio:", error);
-            }
+             if (turnAudioRef.current) {
+                 turnAudioRef.current.currentTime = 0;
+                 turnAudioRef.current.play().catch(error => console.warn("Audio play failed:", error));
+             } else if (turnAudioRef.current === null) {
+                 try {
+                     turnAudioRef.current = new Audio('/notify.wav');
+                     turnAudioRef.current.play().catch(error => console.warn("Audio play failed:", error));
+                 } catch (e) { console.error("Failed to init/play turn audio", e); }
+             }
         }
-    }, [gameState?.currentPlayer, prevPlayer, playerRole, gameState?.gameStatus]);
+    }, [gameState?.currentPlayer, prevPlayer, playerRole, gameState?.gameStatus, isMuted]);
 
-    // --- Game End Audio Effect (Win/Lose/Draw) ---
+    // --- Game End Audio Effect ---
     useEffect(() => {
         const currentStatus = gameState?.gameStatus;
-
-        // Check if the game just ended (was InProgress, now X, O, or Draw)
         if (prevGameStateStatus === 'InProgress' && (currentStatus === 'X' || currentStatus === 'O' || currentStatus === 'Draw')) {
             let audioToPlay: HTMLAudioElement | null = null;
-            let soundName = '';
+            let soundFile = ''; // Store filename for initialization
+            let soundRef: React.MutableRefObject<HTMLAudioElement | null> | null = null;
 
             if (currentStatus === 'X' || currentStatus === 'O') {
-                // --- Handle Win/Loss ---
-                if (playerRole && currentStatus === playerRole) {
-                    // Player Won
-                    soundName = 'win';
-                    if (!winAudioRef.current) {
-                        winAudioRef.current = new Audio('/success.mp3');
-                    }
-                    audioToPlay = winAudioRef.current;
-                } else if (playerRole) {
-                    // Player Lost
-                    soundName = 'lose';
-                    if (!loseAudioRef.current) {
-                        loseAudioRef.current = new Audio('/lose.wav');
-                    }
-                    audioToPlay = loseAudioRef.current;
+                if (playerRole && currentStatus === playerRole) { // Win
+                    soundFile = '/win.mp3'; soundRef = winAudioRef;
+                } else if (playerRole) { // Lose
+                    soundFile = '/lose.wav'; soundRef = loseAudioRef;
                 }
-                // Spectators hear nothing for win/loss
-            } else if (currentStatus === 'Draw') {
-                // --- Handle Draw ---
-                soundName = 'draw';
-                 if (!drawAudioRef.current) {
-                     drawAudioRef.current = new Audio('/draw.wav');
-                 }
-                 audioToPlay = drawAudioRef.current;
+            } else if (currentStatus === 'Draw') { // Draw
+                soundFile = '/draw.wav'; soundRef = drawAudioRef;
             }
 
+            if (!isMuted && soundRef && soundFile) { // <-- Check if muted and soundRef/File exist
+                if (!soundRef.current) { // Initialize if needed
+                    try { soundRef.current = new Audio(soundFile); } catch (e) { console.error(`Failed to init ${soundFile}`, e); return; }
+                }
+                audioToPlay = soundRef.current;
 
-            // --- Play the selected sound ---
-            if (audioToPlay) {
-                if (import.meta.env.DEV) console.log(`Game.tsx: Game ended (${currentStatus}), playing ${soundName} sound.`);
-                try {
-                    audioToPlay.currentTime = 0; // Reset playback
-                    audioToPlay.play().catch(error => {
-                        console.warn(`Audio play failed (${soundName}):`, error);
-                    });
-                } catch (error) {
-                     console.error(`Failed to load or play ${soundName} audio:`, error);
+                if (audioToPlay) {
+                    audioToPlay.currentTime = 0;
+                    audioToPlay.play().catch(error => console.warn(`Audio play failed (${soundFile}):`, error));
                 }
             }
         }
-    }, [gameState?.gameStatus, prevGameStateStatus, playerRole])
+    }, [gameState?.gameStatus, prevGameStateStatus, playerRole, isMuted]);
 
     // --- Track Game Start ---
     useEffect(() => {
@@ -310,6 +285,18 @@ const Game: React.FC = () => {
          <div className="absolute z-20 top-2 left-2 sm:top-4 sm:left-4">
               <button onClick={handleLeaveClick} className="px-3 py-1 text-xs font-semibold text-white transition duration-150 ease-in-out bg-red-700 rounded shadow-md hover:bg-red-800 sm:text-sm" title="Leave Game Room">Leave</button>
          </div>
+         
+         {/* --- Mute Button --- */}
+        <div className="absolute z-20 top-2 right-2 sm:top-4 sm:right-4">
+            <button
+                onClick={toggleMute}
+                className="p-1.5 text-xl text-gray-300 rounded-full hover:bg-gray-700/50 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                aria-label={isMuted ? "Unmute Sounds" : "Mute Sounds"}
+                title={isMuted ? "Unmute Sounds" : "Mute Sounds"}
+            >
+                {isMuted ? '🔇' : '🔊'}
+            </button>
+        </div>
 
         {/* --- Main Status Area --- */}
         <div className="mt-4 mb-2 text-center sm:mt-0">
@@ -322,7 +309,6 @@ const Game: React.FC = () => {
                 {subStatusText}
             </p>
         </div>
-        {/* --- End Main Status Area --- */}
 
 
         {/* Player/Room/Spectator Info Area (Moved below main status) */}

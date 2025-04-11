@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { RoomInfo } from '../types';
 import { trackEvent } from '../utils/analytics';
+import { useSettings } from '../context/SettingsContext';
 
 interface LobbyProps {
     roomList: RoomInfo[]; // Expecting the updated RoomInfo structure
@@ -16,6 +17,7 @@ const Lobby: React.FC<LobbyProps> = ({
     onJoinRoom, // Renamed for clarity, handles joining Waiting or Spectating others
     isConnecting,
 }) => {
+    const { isMuted, toggleMute } = useSettings(); 
     const [newRoomName, setNewRoomName] = useState('');
     // Store duration in seconds (0 for None)
     const [timerDuration, setTimerDuration] = useState<number>(0);
@@ -56,6 +58,17 @@ const Lobby: React.FC<LobbyProps> = ({
 
     return (
         <div className="flex flex-col items-center justify-center min-h-screen p-4 text-white sm:p-6 bg-gradient-to-br from-gray-800 via-gray-900 to-gray-800">
+            <div className="absolute z-20 top-2 right-2 sm:top-4 sm:right-4">
+                <button
+                    onClick={toggleMute}
+                    className="p-1.5 text-xl text-gray-300 rounded-full hover:bg-gray-700/50 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    aria-label={isMuted ? "Unmute Sounds" : "Mute Sounds"}
+                    title={isMuted ? "Unmute Sounds" : "Mute Sounds"}
+                >
+                    {isMuted ? '🔇' : '🔊'}
+                </button>
+            </div>
+
             <h1 className="mb-6 font-mono text-5xl font-bold text-cyan-400 sm:mb-8 sm:text-6xl text-shadow-neon-cyan">
                 Meticto
             </h1>

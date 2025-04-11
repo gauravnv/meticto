@@ -3,9 +3,11 @@ import App from './App.tsx';
 import './index.css';
 import { SocketProvider } from './context/SocketContext';
 import { Toaster } from 'react-hot-toast';
+import { SettingsProvider } from './context/SettingsContext.tsx';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   // <React.StrictMode>
+  <SettingsProvider>
     <SocketProvider>
       <Toaster // Add the Toaster component here
         position="top-center" // Optional: Configure position
@@ -33,5 +35,6 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       />
       <App />
     </SocketProvider>
+    </SettingsProvider>
   // </React.StrictMode>,
 );
