@@ -45,7 +45,11 @@ const Game: React.FC = () => {
     const prevPlayer = usePrevious(gameState?.currentPlayer);
     // Ref to store the Audio object
     const turnAudioRef = useRef<HTMLAudioElement | null>(null);
+    const winAudioRef = useRef<HTMLAudioElement | null>(null);
+    const loseAudioRef = useRef<HTMLAudioElement | null>(null);
+    const drawAudioRef = useRef<HTMLAudioElement | null>(null);
     const prevGameState = usePreviousGameState(gameState);
+    const prevGameStateStatus = prevGameState?.gameStatus 
 
     // --- Countdown Timer Effect ---
     useEffect(() => {
@@ -102,6 +106,58 @@ const Game: React.FC = () => {
             }
         }
     }, [gameState?.currentPlayer, prevPlayer, playerRole, gameState?.gameStatus]);
+
+    // --- Game End Audio Effect (Win/Lose/Draw) ---
+    useEffect(() => {
+        const currentStatus = gameState?.gameStatus;
+
+        // Check if the game just ended (was InProgress, now X, O, or Draw)
+        if (prevGameStateStatus === 'InProgress' && (currentStatus === 'X' || currentStatus === 'O' || currentStatus === 'Draw')) {
+            let audioToPlay: HTMLAudioElement | null = null;
+            let soundName = '';
+
+            if (currentStatus === 'X' || currentStatus === 'O') {
+                // --- Handle Win/Loss ---
+                if (playerRole && currentStatus === playerRole) {
+                    // Player Won
+                    soundName = 'win';
+                    if (!winAudioRef.current) {
+                        winAudioRef.current = new Audio('/success.mp3');
+                    }
+                    audioToPlay = winAudioRef.current;
+                } else if (playerRole) {
+                    // Player Lost
+                    soundName = 'lose';
+                    if (!loseAudioRef.current) {
+                        loseAudioRef.current = new Audio('/lose.wav');
+                    }
+                    audioToPlay = loseAudioRef.current;
+                }
+                // Spectators hear nothing for win/loss
+            } else if (currentStatus === 'Draw') {
+                // --- Handle Draw ---
+                soundName = 'draw';
+                 if (!drawAudioRef.current) {
+                     drawAudioRef.current = new Audio('/draw.wav');
+                 }
+                 audioToPlay = drawAudioRef.current;
+            }
+
+
+            // --- Play the selected sound ---
+            if (audioToPlay) {
+                if (import.meta.env.DEV) console.log(`Game.tsx: Game ended (${currentStatus}), playing ${soundName} sound.`);
+                try {
+                    audioToPlay.currentTime = 0; // Reset playback
+                    audioToPlay.play().catch(error => {
+                        console.warn(`Audio play failed (${soundName}):`, error);
+                    });
+                } catch (error) {
+                     console.error(`Failed to load or play ${soundName} audio:`, error);
+                }
+            }
+        }
+    }, [gameState?.gameStatus, prevGameStateStatus, playerRole])
 
     // --- Track Game Start ---
     useEffect(() => {
