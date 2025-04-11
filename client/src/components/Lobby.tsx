@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { RoomInfo } from '../types';
+import { trackEvent } from '../utils/analytics';
 
 interface LobbyProps {
     roomList: RoomInfo[]; // Expecting the updated RoomInfo structure
@@ -26,6 +27,7 @@ const Lobby: React.FC<LobbyProps> = ({
             roomName: newRoomName.trim() || undefined,
             duration: timerDuration === 0 ? undefined : timerDuration // Send undefined if 0 (None)
         });
+        trackEvent('room/create');
         setNewRoomName(''); // Clear input
         setTimerDuration(0); // Reset dropdown
     };

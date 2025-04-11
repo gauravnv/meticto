@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import LargeBoard from './LargeBoard';
 import { useSocketContext } from '../context/SocketContext';
+import { GameState, isSmallBoardFinished } from '../types';
+import { trackEvent } from '../utils/analytics';
 
 function usePrevious<T>(value: T): T | undefined {
   const ref = useRef<T | undefined>(undefined);
@@ -9,6 +11,15 @@ function usePrevious<T>(value: T): T | undefined {
   });
   return ref.current;
 }
+
+// Helper hook to get previous GameState
+function usePreviousGameState(value: GameState | null): GameState | null | undefined {
+    const ref = useRef<GameState | null>(null);
+    useEffect(() => {
+      ref.current = value;
+    });
+    return ref.current;
+  }
 
 const Game: React.FC = () => {
     const {
@@ -34,6 +45,7 @@ const Game: React.FC = () => {
     const prevPlayer = usePrevious(gameState?.currentPlayer);
     // Ref to store the Audio object
     const turnAudioRef = useRef<HTMLAudioElement | null>(null);
+    const prevGameState = usePreviousGameState(gameState);
 
     // --- Countdown Timer Effect ---
     useEffect(() => {
@@ -90,6 +102,30 @@ const Game: React.FC = () => {
             }
         }
     }, [gameState?.currentPlayer, prevPlayer, playerRole, gameState?.gameStatus]);
+
+    // --- Track Game Start ---
+    useEffect(() => {
+        if (gameState && opponentJoined && !prevGameState) { // Track when game state appears *and* opponent is joined
+            trackEvent('game/start');
+        }
+    }, [gameState, opponentJoined, prevGameState]);
+
+
+    // --- Track Game End ---
+    useEffect(() => {
+        const currentStatus = gameState?.gameStatus;
+        const prevStatus = prevGameState?.gameStatus;
+
+        if (currentStatus && prevStatus === 'InProgress') { // Check if game just finished
+            if (currentStatus === 'X' || currentStatus === 'O') {
+                const outcome = currentStatus === playerRole ? 'win' : 'loss';
+                trackEvent(`game/end/${outcome}`);
+            } else if (currentStatus === 'Draw') {
+                trackEvent('game/end/draw');
+            }
+            // Could also track disconnects here if needed, e.g., based on opponentDisconnected flag change
+        }
+    }, [gameState?.gameStatus, prevGameState?.gameStatus, playerRole]);
 
 
     // --- Click Handlers ---
@@ -175,6 +211,39 @@ const Game: React.FC = () => {
         else { subStatusText = `Play anywhere`; }
      }
 
+     // --- Determine Hints ---
+     let hintText: string | null = null;
+     if (gameState && gameState.gameStatus === 'InProgress' && playerRole === gameState.currentPlayer) {
+         const currentActiveBoard = gameState.activeBoardIndex;
+         const prevActiveBoard = prevGameState?.activeBoardIndex; // Active board *before* this turn started
+
+         // Hint 1: Play Anywhere (Current state allows it, and it wasn't forced by opponent playing in a finished board)
+         if (currentActiveBoard === null) {
+             // Check if the *reason* it's null is NOT because the opponent just played in a finished board
+             const lastMoveSentToFinishedBoard =
+                 prevGameState &&
+                 prevGameState.currentPlayer !== playerRole && // Was opponent's turn before
+                 prevGameState.activeBoardIndex !== null && // Opponent was sent to a specific board
+                 isSmallBoardFinished(gameState.largeBoard[prevGameState.activeBoardIndex].status); // That board is now finished
+
+             if (!lastMoveSentToFinishedBoard) {
+                // Show "Play Anywhere" hint, maybe more strongly on the very first turn?
+                // Simple version for now:
+                hintText = "Hint: You can play in any available cell on any unfinished board.";
+             } else {
+                 // Hint 3: Opponent played in finished board, now play anywhere
+                 hintText = "Hint: Opponent sent you to a finished board. You can play anywhere!";
+             }
+         }
+         // Hint 2: Sent to specific board
+         else if (currentActiveBoard !== null) {
+             // Optionally check if prevActiveBoard was different to only show on change
+             if (prevActiveBoard !== currentActiveBoard) {
+                  hintText = `Hint: Opponent's move sends you to Board ${currentActiveBoard + 1}.`;
+             }
+         }
+     }
+
 
     // --- Render the Main Game UI ---
     return (
@@ -215,6 +284,16 @@ const Game: React.FC = () => {
             )}
              {displayTimeLeft === null && gameState?.gameStatus === 'InProgress' && <p className="text-xs text-gray-500 sm:text-sm">(No turn timer)</p>} {/* Reduced font size */}
         </div>
+
+        {/* --- Hint Display Area --- */}
+        <div className="h-5 mt-1 mb-1 text-center"> {/* Reserve space for hint */}
+            {hintText && (
+                <p className="text-xs italic text-yellow-200/80 sm:text-sm animate-pulse">
+                    {hintText}
+                </p>
+            )}
+        </div>
+
         {/* Game Board Area - Adjust container size */}
         <div className="w-[calc(100%-1rem)] max-w-[400px] sm:max-w-lg mt-2">
           <LargeBoard
