@@ -3,12 +3,12 @@ import LargeBoard from './LargeBoard';
 import { useSocketContext } from '../context/SocketContext';
 
 function usePrevious<T>(value: T): T | undefined {
-    const ref = useRef<T | undefined>(undefined);
-    useEffect(() => {
-      ref.current = value;
-    });
-    return ref.current;
-  }
+  const ref = useRef<T | undefined>(undefined);
+  useEffect(() => {
+    ref.current = value;
+  });
+  return ref.current;
+}
 
 const Game: React.FC = () => {
     const {
@@ -30,9 +30,9 @@ const Game: React.FC = () => {
 
     // Local state for countdown display
     const [displayTimeLeft, setDisplayTimeLeft] = useState<number | null>(null);
-    // Get previous player state to detect change
+    // Get previous player state to detect change for audio cue
     const prevPlayer = usePrevious(gameState?.currentPlayer);
-    // Ref to store the Audio object to prevent creating it unnecessarily
+    // Ref to store the Audio object
     const turnAudioRef = useRef<HTMLAudioElement | null>(null);
 
     // --- Countdown Timer Effect ---
@@ -55,15 +55,18 @@ const Game: React.FC = () => {
             setDisplayTimeLeft(null);
         }
 
+        // Cleanup function: Clear interval when component unmounts or currentTimer changes
         return () => {
             if (intervalId) {
                 clearInterval(intervalId);
             }
         };
-    }, [currentTimer]);
+    }, [currentTimer]); // Re-run effect when currentTimer object changes
 
-     // --- Audio Cue Effect ---
-     useEffect(() => {
+
+    // --- Audio Cue Effect ---
+    useEffect(() => {
+        // Ensure game is running, we have a role, and the turn just changed to us
         if (
             gameState &&
             gameState.gameStatus === 'InProgress' &&
@@ -78,9 +81,8 @@ const Game: React.FC = () => {
                     turnAudioRef.current = new Audio('/notify.wav');
                 }
                 // Play the sound
-                turnAudioRef.current.currentTime = 0;
+                turnAudioRef.current.currentTime = 0; // Reset time allows playing again quickly
                 turnAudioRef.current.play().catch(error => {
-                    // Autoplay restrictions might cause an error
                     console.warn("Audio play failed (possibly autoplay restriction):", error);
                 });
             } catch (error) {
@@ -113,7 +115,7 @@ const Game: React.FC = () => {
           </div>
         );
      }
-     // 2. Connection/Server Error State
+     // 2. Connection/Server Error State (Relies on toast now, but keep basic connection lost screen)
      if (!isConnected && roomId && !opponentDisconnected) {
           return (
              <div className="flex flex-col items-center justify-center min-h-screen p-4 text-white bg-gradient-to-br from-gray-900 via-indigo-950 to-gray-900">
@@ -128,8 +130,8 @@ const Game: React.FC = () => {
      if (!gameState) {
          return (
             <div className="flex flex-col items-center justify-center min-h-screen p-4 text-white bg-gradient-to-br from-gray-900 via-indigo-950 to-gray-900">
-                <h1 className="mb-4 text-4xl font-bold">Meticto</h1>
-                <div className="text-2xl text-yellow-400 animate-pulse">Loading game state... {roomName && `(Room: "${roomName}")`}</div>
+                <h1 className="mb-4 text-4xl font-bold">Meticto</h1> 
+                <div className="text-2xl text-yellow-400 animate-pulse">Loading game state... {roomName && `("${roomName}")`}</div>
                 <button onClick={handleLeaveClick} className="px-4 py-2 mt-6 bg-gray-600 rounded hover:bg-gray-700">Back to Lobby</button>
             </div>
           );
@@ -140,68 +142,99 @@ const Game: React.FC = () => {
      const playerInfoText = playerRole ? `You are Player ${playerRole}` : "Spectating";
      const roomInfoText = roomName ? ` in room "${roomName}"` : "";
      const spectatorInfo = spectatorCount > 0 ? ` (${spectatorCount} watching)` : "";
-     let statusText: string;
+
+     // Determine the main status message (Win/Draw/Turn)
+     let mainStatusText: string | React.ReactNode = ''; // Can be string or JSX
+     let subStatusText: string = ''; // For secondary info like active board
+     const isGameOver = gameState && (gameState.gameStatus === 'X' || gameState.gameStatus === 'O' || gameState.gameStatus === 'Draw');
      const isGameReadyToPlay = opponentJoined || playerRole === null;
-     if (gameState.gameStatus === 'X' || gameState.gameStatus === 'O') { statusText = `Player ${gameState.gameStatus} Wins! ${gameState.gameStatus === playerRole ? '🎉 You won!' : (playerRole ? 'You lost.' : '')}`; }
-     else if (gameState.gameStatus === 'Draw') { statusText = 'Game is a Draw!'; }
-     else if (!isGameReadyToPlay && playerRole) { statusText = "Waiting for opponent to join..."; }
-     else {
-        if (!playerRole) { statusText = `Player ${gameState.currentPlayer}'s Turn`; }
-        else if (playerRole === gameState.currentPlayer) { statusText = "Your Turn"; }
-        else { statusText = `Player ${gameState.currentPlayer}'s Turn`; }
-        if (gameState.activeBoardIndex !== null) { statusText += ` - Play in Board ${gameState.activeBoardIndex + 1}`; }
-        else { statusText += ` - Play anywhere`; }
+
+     if (isGameOver) {
+        if (gameState.gameStatus === 'X' || gameState.gameStatus === 'O') {
+            mainStatusText = (
+                 <>
+                    Player {gameState.gameStatus} Wins!
+                    {/* Add emoji only if the current client won */}
+                    {gameState.gameStatus === playerRole && <span className="ml-2">🎉</span>}
+                 </>
+            );
+            // Sub-status can indicate if you won/lost
+            subStatusText = gameState.gameStatus === playerRole ? 'You won!' : (playerRole ? 'You lost.' : '');
+        } else if (gameState.gameStatus === 'Draw') {
+            mainStatusText = 'Game is a Draw!';
+            subStatusText = ''; // No sub-status needed for draw
+        }
+     } else if (!isGameReadyToPlay && playerRole) {
+         mainStatusText = "Waiting for opponent...";
+     } else if (gameState) { // Game in progress
+        if (!playerRole) { mainStatusText = `Player ${gameState.currentPlayer}'s Turn`; }
+        else if (playerRole === gameState.currentPlayer) { mainStatusText = "Your Turn"; }
+        else { mainStatusText = `Player ${gameState.currentPlayer}'s Turn`; }
+        // Sub-status indicates where to play
+        if (gameState.activeBoardIndex !== null) { subStatusText = `Play in Board ${gameState.activeBoardIndex + 1}`; }
+        else { subStatusText = `Play anywhere`; }
      }
 
 
     // --- Render the Main Game UI ---
     return (
-      <div className={`relative flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-gray-900 via-indigo-950 to-gray-900 text-white p-4 pt-16 sm:pt-4`}>
+      // Adjust overall padding, especially top padding on small screens
+      <div className={`relative flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-gray-900 via-indigo-950 to-gray-900 text-white p-4 pt-12 sm:pt-4`}>
 
-        {/* Leave Room Button */}
-         <div className="absolute z-20 top-3 left-3 sm:top-4 sm:left-4">
+        {/* Leave Room Button - Adjust position slightly if needed */}
+         <div className="absolute z-20 top-2 left-2 sm:top-4 sm:left-4">
               <button onClick={handleLeaveClick} className="px-3 py-1 text-xs font-semibold text-white transition duration-150 ease-in-out bg-red-700 rounded shadow-md hover:bg-red-800 sm:text-sm" title="Leave Game Room">Leave</button>
          </div>
 
-        {/* Game Title */}
-        <h1 className="mt-8 mb-2 text-3xl font-bold sm:text-4xl sm:mb-4 sm:mt-0">Meticto</h1>
+        {/* --- Main Status Area --- */}
+        <div className="mt-4 mb-2 text-center sm:mt-0">
+            {/* Main Game Result / Turn Indicator */}
+            <h1 className={`font-bold mb-1 ${isGameOver ? 'text-4xl sm:text-5xl text-yellow-300' : 'text-2xl sm:text-3xl'}`}>
+                 {mainStatusText}
+            </h1>
+            {/* Sub Status (Win/Loss/Play Location) */}
+            <p className={`text-base sm:text-lg text-gray-300 ${isGameOver ? 'h-6' : 'h-6 mb-1'}`}>
+                {subStatusText}
+            </p>
+        </div>
+        {/* --- End Main Status Area --- */}
 
-        {/* Player/Room/Spectator Info Area */}
-        <div className="h-6 mb-1 text-base font-semibold text-center text-gray-300 sm:text-xl">{playerInfoText}{roomInfoText}{spectatorInfo}</div>
 
-        {/* Game Status / Turn Indicator */}
-        <div className="h-8 mb-1 text-xl text-center sm:text-2xl">{statusText}</div>
+        {/* Player/Room/Spectator Info Area (Moved below main status) */}
+        <div className="h-6 mb-1 text-sm font-semibold text-center text-gray-400 sm:text-base">
+            {playerInfoText}{roomInfoText}{spectatorInfo}
+        </div>
 
-        {/* Timer Display */}
-        <div className="h-6 mb-3 text-center">
+
+        {/* Timer Display*/}
+        <div className="h-6 mb-2 text-center">
             {displayTimeLeft !== null && currentTimer && (
-                <p className={`text-lg font-medium ${displayTimeLeft <= 10 ? 'text-red-400 animate-pulse' : 'text-yellow-300'}`}>
+                <p className={`text-base font-medium ${displayTimeLeft <= 10 ? 'text-red-400 animate-pulse' : 'text-yellow-300'} sm:text-lg`}> {/* Reduced font size */}
                     {currentTimer.player === playerRole ? 'Your Time:' : `Player ${currentTimer.player}'s Time:`}{' '}{displayTimeLeft}s
                 </p>
             )}
-             {displayTimeLeft === null && gameState?.gameStatus === 'InProgress' && <p className="text-sm text-gray-500">(No turn timer)</p>}
+             {displayTimeLeft === null && gameState?.gameStatus === 'InProgress' && <p className="text-xs text-gray-500 sm:text-sm">(No turn timer)</p>} {/* Reduced font size */}
         </div>
-        
-        {/* Game Board Area */}
-        <div className="w-full max-w-lg mt-2">
-          {/* Ensure all necessary props are passed */}
+        {/* Game Board Area - Adjust container size */}
+        <div className="w-[calc(100%-1rem)] max-w-[400px] sm:max-w-lg mt-2">
           <LargeBoard
             largeBoardState={gameState.largeBoard}
             activeBoardIndex={gameState.activeBoardIndex}
             currentPlayer={gameState.currentPlayer}
             myRole={playerRole}
             gameStatus={gameState.gameStatus}
-            largeWinningLine={gameState.largeWinningLine}
+            largeWinningLine={gameState.largeWinningLine} // Pass prop even if not used for styling
             onCellClick={handleCellClick}
           />
         </div>
 
         {/* Rematch Button */}
-        {(gameState.gameStatus !== 'InProgress' && playerRole) && (
-             <div className="mt-6 text-center">
-                 {rematchOffered && !rematchRequested && (<p className="mb-2 text-yellow-400 animate-pulse">Opponent wants a rematch!</p>)}
-                 {rematchRequested && !rematchOffered && (<p className="mb-2 text-gray-400">Rematch requested. Waiting for opponent...</p>)}
-                 <button onClick={handleResetClick} className="px-6 py-2 font-semibold text-white transition duration-150 ease-in-out bg-indigo-600 rounded-lg shadow-md hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed" aria-label={rematchOffered ? "Accept Rematch" : "Request Rematch"} disabled={rematchRequested}>
+        {(isGameOver && playerRole) && ( 
+             <div className="mt-4 text-center sm:mt-6">
+                 {rematchOffered && !rematchRequested && (<p className="mb-2 text-sm text-yellow-400 animate-pulse sm:text-base">Opponent wants a rematch!</p>)}
+                 {rematchRequested && !rematchOffered && (<p className="mb-2 text-sm text-gray-400 sm:text-base">Rematch requested. Waiting for opponent...</p>)}
+                
+                 <button onClick={handleResetClick} className="px-5 py-2 text-sm font-semibold text-white transition duration-150 ease-in-out bg-indigo-600 rounded-lg shadow-md sm:text-base sm:px-6 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed" aria-label={rematchOffered ? "Accept Rematch" : "Request Rematch"} disabled={rematchRequested}>
                      {rematchOffered ? "Accept Rematch & Play Again" : (rematchRequested ? "Rematch Requested" : "Request Rematch?")}
                  </button>
              </div>

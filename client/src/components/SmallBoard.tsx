@@ -18,8 +18,9 @@ const SmallBoard: React.FC<SmallBoardProps> = ({
   onCellClick,
 }) => {
   const { status, cells, winningLine } = boardState;
-  let boardClasses = "grid grid-cols-3 grid-rows-3 gap-0.5 ";
+  let boardClasses = "grid grid-cols-3 grid-rows-3 gap-[1px] sm:gap-0.5 ";
   let overlayText = '';
+  let overlayTextSize = 'text-5xl sm:text-6xl';
 
   // Determine if this specific board CAN be played in based on current rules
   const isPlayableNow =
@@ -27,9 +28,11 @@ const SmallBoard: React.FC<SmallBoardProps> = ({
     !isSmallBoardFinished(status) && // This board must not be finished
     (activeBoardIndex === null || activeBoardIndex === boardIndex); // EITHER play anywhere OR this is the required board
 
+    // Adjust border width for finished/active states
+  const borderClass = 'border-2 sm:border-4';
+
   if (status === 'X' || status === 'O') {
-    // Styling for WON boards (gradients)
-    boardClasses += " relative border-4 ";
+    boardClasses += ` relative ${borderClass} `; 
     if (status === 'X') {
       boardClasses += " bg-gradient-to-br from-blue-800 via-blue-950 to-blue-800/80 border-blue-500";
       overlayText = 'X';
@@ -38,47 +41,47 @@ const SmallBoard: React.FC<SmallBoardProps> = ({
       overlayText = 'O';
     }
   } else if (status === 'Draw') {
-    // Styling for DRAWN boards
-    boardClasses += " bg-gray-800/90 border-4 border-gray-600";
+    boardClasses += ` bg-gray-800/90 ${borderClass} border-gray-600`;
     overlayText = '--|--';
+    overlayTextSize = 'text-3xl sm:text-4xl';
   } else {
     // --- Styling for IN-PROGRESS boards ---
-    // Check if the board is playable right now
     if (isPlayableNow) {
-        boardClasses += " border-4 border-yellow-400 animate-pulse ";
+        // Use responsive border for active state
+        boardClasses += ` ${borderClass} border-yellow-400 animate-pulse `;
         if (activeBoardIndex === boardIndex) {
             boardClasses += " bg-yellow-300/20 ";
-        } else {
+        } else { // Play anywhere highlight
             boardClasses += " bg-yellow-300/10 ";
         }
     }
     // Otherwise, it's just an inactive, in-progress board
     else {
-       boardClasses += " bg-gray-600/50 border-2 border-gray-500 ";
+       // Thinner border for inactive boards
+       boardClasses += " bg-gray-600/50 border sm:border-2 border-gray-500 ";
     }
   }
 
-  // Internal click handler to pass boardIndex along with cellIndex
   const handleCellClickInternal = (cellIndex: number) => {
     onCellClick(boardIndex, cellIndex);
   };
 
   return (
-    // Apply calculated classes, ensure square aspect ratio, relative positioning for overlay
     <div className={`${boardClasses.trim()} aspect-square relative`}>
+      {/* Render Overlay Text if board is finished */}
       {isSmallBoardFinished(status) && overlayText && (
-        <div className={`absolute inset-0 flex items-center justify-center text-6xl font-extrabold ${status === 'X' ? 'text-blue-400' : status === 'O' ? 'text-red-400' : 'text-gray-400'} opacity-80 pointer-events-none`}>
+        <div className={`absolute inset-0 flex items-center justify-center font-extrabold ${overlayTextSize} ${status === 'X' ? 'text-blue-400' : status === 'O' ? 'text-red-400' : 'text-gray-400'} opacity-80 pointer-events-none`}>
           {overlayText}
         </div>
       )}
 
-      {/* Render Cells - Need to update isCellDisabled logic slightly */}
+      {/* Render Cells */}
       {cells.map((cellValue, cellIndex) => {
         const isCellDisabled =
           cellValue !== null ||
           isSmallBoardFinished(status) ||
           gameStatus !== 'InProgress' ||
-          !isPlayableNow; // Cell is disabled if the board itself isn't playable now
+          !isPlayableNow;
 
         const isWinningCell = winningLine?.includes(cellIndex) ?? false;
 

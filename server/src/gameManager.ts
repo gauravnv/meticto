@@ -79,7 +79,7 @@ export class GameManager {
             if (room.status === 'Waiting' || room.status === 'Playing' || room.status === 'Finished') {
                 roomList.push({
                     roomId: room.roomId,
-                    roomName: room.roomName || `Room ${room.roomId}`,
+                    roomName: room.roomName || `${room.roomId}`,
                     playerCount: room.players.filter(p => p !== null).length,
                     spectatorCount: room.spectators.size,
                     status: room.status,
@@ -117,7 +117,7 @@ export class GameManager {
 
         const newRoom: GameRoom = {
             roomId,
-            roomName: this.sanitizeRoomName(roomOptions?.roomName) || `Room ${roomId}`,
+            roomName: this.sanitizeRoomName(roomOptions?.roomName) || `${roomId}`,
             status: "Waiting",
             players: [playerXInfo, null],
             gameState: createInitialGameState(),

@@ -1,2 +1,25 @@
 @import "tailwindcss";
 
+@layer utilities {
+
+    /* Neon Text Shadow Utility */
+    .text-shadow-neon-cyan {
+        text-shadow: 0 0 5px theme('colors.cyan.500'),
+                     0 0 10px theme('colors.cyan.500'),
+                     0 0 15px theme('colors.cyan.500'),
+                     0 0 20px theme('colors.cyan.700'); /* Optional darker outer glow */
+    }
+     .text-shadow-neon-blue {
+         text-shadow: 0 0 5px theme('colors.blue.500'),
+                      0 0 10px theme('colors.blue.500'),
+                      0 0 15px theme('colors.blue.500'),
+                      0 0 20px theme('colors.blue.700');
+     }
+     .text-shadow-neon-red {
+         text-shadow: 0 0 5px theme('colors.red.500'),
+                      0 0 10px theme('colors.red.500'),
+                      0 0 15px theme('colors.red.500'),
+                      0 0 20px theme('colors.red.700');
+     }
+     /* Add more colors as needed */
+}
